@@ -49,6 +49,7 @@
         "@goauthentik/tsconfig": "link:../tsconfig",
         "@types/eslint": "^9.6.1",
         "@types/node": "^25.9.4",
+        "@typescript-eslint/parser": "^8.62.1",
         "typescript": "catalog:",
         "typescript-eslint": "^8.62.1"
     },
