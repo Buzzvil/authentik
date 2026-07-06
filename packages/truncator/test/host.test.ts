@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-
 import { shrinkHost } from "../lib/internal/host.js";
+
+import { describe, expect, it } from "vitest";
 
 const cc = (maxWidth: number) => ({ maxWidth });
 

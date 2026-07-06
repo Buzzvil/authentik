@@ -12,6 +12,7 @@
         "build": "tsc -p .",
         "lint": "eslint --fix .",
         "lint-check": "eslint --max-warnings 0 .",
+        "prepare": "tsc -p .",
         "prettier": "prettier --write .",
         "prettier-check": "prettier --check .",
         "test": "vitest run",
@@ -25,6 +26,10 @@
         ".": {
             "types": "./out/index.d.ts",
             "import": "./index.js"
+        },
+        "./measurer": {
+            "types": "./out/lib/measurer.d.ts",
+            "import": "./lib/measurer.js"
         },
         "./url": {
             "types": "./out/lib/url.d.ts",
@@ -57,10 +62,6 @@
         "./string": {
             "types": "./out/lib/string.d.ts",
             "import": "./lib/string.js"
-        },
-        "./number": {
-            "types": "./out/lib/number.d.ts",
-            "import": "./lib/number.js"
         }
     },
     "devDependencies": {

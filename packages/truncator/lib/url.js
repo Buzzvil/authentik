@@ -1,4 +1,6 @@
 /**
+ * @import { TruncateOptions } from "./internal/primitives.js"
+ *
  * @file URL truncation. A measure-gated pipeline that strips low-value URL
  * chrome (protocol, www, port), ellipsizes machine-unfriendly query params and
  * path segments, then shrinks the host and hard-cuts as a last resort.
@@ -12,115 +14,163 @@ import { endEllipsis, reducePipeline } from "./internal/primitives.js";
 const MARK = "…";
 
 /**
- * Does every dash/dot/underscore-delimited part of `str` look like a word,
+ * Does every dash/dot/underscore-delimited part of `input` look like a word,
  * acronym, or number (i.e. human-readable rather than an opaque token)?
- * @param {string} str
+ *
+ * @param {string} input
+ *
  * @returns {boolean}
  */
-function isWordedPart(str) {
+function isWordedPart(input) {
     const wordRe = /^(([a-z]*?[aeiouy][a-z]*?)|(\d*)|q)$/i;
     const acronymRe = /^([a-z]{2,5}|[A-Z]{2,5})$/;
-    for (const part of str.split(/-|\.|,|\+|_|%20/)) {
-        if (!wordRe.test(part) && !acronymRe.test(part)) return false;
+
+    for (const part of input.split(/-|\.|,|\+|_|%20/)) {
+        if (!wordRe.test(part) && !acronymRe.test(part)) {
+            return false;
+        }
     }
+
     return true;
 }
 
 /**
- * Collapse runs of adjacent ellipsized segments joined by `sep` down to one.
- * @param {string} str
- * @param {string} sep
+ * Collapse runs of adjacent ellipsized segments joined by `delimiter` down to one.
+ *
+ * @param {string} input
+ * @param {string} delimiter
+ *
  * @returns {string}
  */
-function collapseAdjacent(str, sep) {
-    const triple = new RegExp(`\\${sep}${MARK}\\${sep}${MARK}\\${sep}`, "g");
-    const leading = new RegExp(`${MARK}\\${sep}${MARK}\\${sep}`, "g");
-    const trailing = new RegExp(`\\${sep}${MARK}\\${sep}${MARK}`, "g");
-    let result = str;
+function collapseAdjacent(input, delimiter) {
+    const triple = new RegExp(`\\${delimiter}${MARK}\\${delimiter}${MARK}\\${delimiter}`, "g");
+    const leading = new RegExp(`${MARK}\\${delimiter}${MARK}\\${delimiter}`, "g");
+    const trailing = new RegExp(`\\${delimiter}${MARK}\\${delimiter}${MARK}`, "g");
+
+    let result = input;
     let prev;
+
     do {
         prev = result;
         result = result
-            .replace(triple, `${sep}${MARK}${sep}`)
-            .replace(leading, `${MARK}${sep}`)
-            .replace(trailing, `${sep}${MARK}`);
+            .replace(triple, `${delimiter}${MARK}${delimiter}`)
+            .replace(leading, `${MARK}${delimiter}`)
+            .replace(trailing, `${delimiter}${MARK}`);
     } while (result !== prev);
+
     return result;
 }
 
-/** @type {(url: string) => string} */
-const stripProtocol = (url) => url.replace(/^https?:\/?\/?/i, "");
+/**
+ * @typedef {(url: string, opts: TruncateOptions) => string} URLTransformer
+ */
 
-/** @type {(url: string) => string} */
-const stripWww = (url) => url.replace(/^www\./, "");
+/** @type {URLTransformer} */
+function stripProtocol(url) {
+    return url.replace(/^https?:\/?\/?/i, "");
+}
 
-/** @type {(url: string) => string} */
+/** @type {URLTransformer} */
+function stripWWW(url) {
+    return url.replace(/^www\./, "");
+}
+
+/** @type {URLTransformer} */
 function stripPort(url) {
     const parts = url.split("/");
     const host = parts[0] ?? "";
     parts[0] = host.split(":")[0] ?? host;
+
     return parts.join("/");
 }
 
-/** @type {(url: string) => string} */
+/** @type {URLTransformer} */
 function ellipsizeQuery(url) {
     const q = url.indexOf("?");
-    if (q < 0) return url;
+
+    if (q < 0) {
+        return url;
+    }
+
     const before = url.slice(0, q);
     let query = url.slice(q + 1);
 
     const hashAt = query.indexOf("#");
     const hash = hashAt > -1 ? query.slice(hashAt) : "";
-    if (hashAt > -1) query = query.slice(0, hashAt);
+
+    if (hashAt > -1) {
+        query = query.slice(0, hashAt);
+    }
 
     const parts = query.split("&").map((pair) => {
         const [key, val, ...rest] = pair.split("=");
+
         if (rest.length || val === undefined) return pair;
+
         const keyOk = isWordedPart(key ?? "");
         const valOk = isWordedPart(val);
+
         if (!keyOk && !valOk) return MARK;
         if (!keyOk) return `${MARK}=${val}`;
         if (!valOk) return `${key}=${MARK}`;
+
         return pair;
     });
 
     return before + "?" + collapseAdjacent(parts.join("&"), "&") + hash;
 }
 
-/** @type {(url: string) => string} */
+/** @type {URLTransformer} */
 function ellipsizePath(url) {
     const slash = url.indexOf("/");
-    if (slash < 0) return url;
+
+    if (slash < 0) {
+        return url;
+    }
+
     const before = url.slice(0, slash);
     let after = url.slice(slash + 1);
 
     const q = after.indexOf("?");
     const h = after.indexOf("#");
     let cut = -1;
-    if (q > -1 && h > -1) cut = Math.min(q, h);
-    else if (q > -1) cut = q;
-    else if (h > -1) cut = h;
+
+    if (q > -1 && h > -1) {
+        cut = Math.min(q, h);
+    } else if (q > -1) {
+        cut = q;
+    } else if (h > -1) {
+        cut = h;
+    }
 
     const suffix = cut > -1 ? after.slice(cut) : "";
-    if (cut > -1) after = after.slice(0, cut);
 
-    const parts = after.split("/").map((part) => (isWordedPart(part) ? part : MARK));
+    if (cut > -1) {
+        after = after.slice(0, cut);
+    }
+
+    const parts = after.split("/").map((part) => {
+        return isWordedPart(part) ? part : MARK;
+    });
+
     return before + "/" + collapseAdjacent(parts.join("/"), "/") + suffix;
 }
 
 /**
  * Shrink the host (subdomains before domain+TLD) to whatever budget remains
  * after the path.
- * @type {(url: string, opts: import("./internal/primitives.js").TruncateOptions) => string}
+ * @type {URLTransformer}
  */
 function shrinkUrlHost(url, opts) {
     const slash = url.indexOf("/");
     const host = slash < 0 ? url : url.slice(0, slash);
     const rest = slash < 0 ? "" : url.slice(slash);
+
     const shrunk = shrinkHost(host, {
         ...opts,
         maxWidth: Math.max(1, opts.maxWidth - rest.length),
     });
+
     return shrunk + rest;
 }
 
@@ -128,17 +178,17 @@ function shrinkUrlHost(url, opts) {
  * Truncate a URL, keeping the human-meaningful host and path while ellipsizing
  * opaque query params and path segments.
  * @param {string} url
- * @param {import("./internal/primitives.js").TruncateOptions} opts
+ * @param {TruncateOptions} options
  * @returns {string}
  */
-export function truncateURL(url, opts) {
-    return reducePipeline(url, opts, [
+export function truncateURL(url, options) {
+    return reducePipeline(url, options, [
         stripProtocol,
-        stripWww,
+        stripWWW,
         stripPort,
         ellipsizeQuery,
         ellipsizePath,
         shrinkUrlHost,
-        (value, o) => endEllipsis(value, o),
+        (value, $options) => endEllipsis(value, $options),
     ]);
 }

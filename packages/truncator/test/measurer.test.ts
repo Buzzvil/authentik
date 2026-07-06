@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { characterMeasurer } from "../lib/measurer.js";
 
-import { characterMeasurer } from "../lib/internal/measurer.js";
+import { describe, expect, it } from "vitest";
 
 describe("characterMeasurer", () => {
     it("returns the number of code units in the string", () => {

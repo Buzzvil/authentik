@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-
 import { compressIPv6, truncateIPAddress } from "../lib/ip-address.js";
+
+import { describe, expect, it } from "vitest";
 
 const cc = (maxWidth: number) => ({ maxWidth });
 

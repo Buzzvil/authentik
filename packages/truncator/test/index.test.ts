@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-
 import * as truncator from "../index.js";
+
+import { describe, expect, it } from "vitest";
 
 describe("package entry", () => {
     it("re-exports every truncator", () => {
@@ -12,6 +12,10 @@ describe("package entry", () => {
         expect(typeof truncator.truncateEmail).toBe("function");
         expect(typeof truncator.truncateUserAgent).toBe("function");
         expect(typeof truncator.truncateString).toBe("function");
-        expect(typeof truncator.truncateNumber).toBe("function");
+    });
+
+    it("exposes the measurer entry points for DOM callers", () => {
+        expect(typeof truncator.characterMeasurer).toBe("function");
+        expect(typeof truncator.createCanvasMeasurer).toBe("function");
     });
 });

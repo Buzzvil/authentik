@@ -1,41 +1,54 @@
 /**
+ * @import { TruncateOptions } from "./internal/primitives.js"
+ *
  * @file Email truncation — shrink the local part first, then the domain.
  */
 
-import { characterMeasurer } from "./internal/measurer.js";
 import { shrinkHost } from "./internal/host.js";
 import { endEllipsis, middleEllipsis } from "./internal/primitives.js";
+import { characterMeasurer } from "./measurer.js";
 
 /**
  * Truncate an email address. The local part is middle-ellipsized first while the
  * `@domain` is kept intact; if that still doesn't fit, the domain is shrunk via
  * {@link shrinkHost}.
- * @param {string} value
- * @param {import("./internal/primitives.js").TruncateOptions} opts
+ *
+ * @param {string} input The email address to truncate.
+ * @param {TruncateOptions} options
+ *
  * @returns {string}
  */
-export function truncateEmail(value, opts) {
-    const measure = opts.measure ?? characterMeasurer;
-    const ellipsis = opts.ellipsis ?? "…";
-    if (measure(value) <= opts.maxWidth) return value;
+export function truncateEmail(input, options) {
+    const measure = options.measure ?? characterMeasurer;
+    const ellipsis = options.ellipsis ?? "…";
 
-    const at = value.lastIndexOf("@");
-    if (at === -1) return middleEllipsis(value, opts);
-
-    const local = value.slice(0, at);
-    const domain = value.slice(at + 1);
-
-    // 1) Shrink only the local part, keeping "@domain" intact.
-    const suffix = "@" + domain;
-    const localBudget = opts.maxWidth - measure(suffix);
-    if (localBudget >= measure(ellipsis)) {
-        const candidate = middleEllipsis(local, { ...opts, maxWidth: localBudget }) + suffix;
-        if (measure(candidate) <= opts.maxWidth) return candidate;
+    if (measure(input) <= options.maxWidth) {
+        return input;
     }
 
-    // 2) Shrink the domain too. Keep a minimal local head, ellipsize the domain,
-    //    then hard-cut the whole thing to guarantee the budget.
-    const domainBudget = Math.max(measure(ellipsis), opts.maxWidth - measure("x@"));
-    const shrunkDomain = shrinkHost(domain, { ...opts, maxWidth: domainBudget });
-    return endEllipsis(local.charAt(0) + "…@" + shrunkDomain, opts);
+    const at = input.lastIndexOf("@");
+
+    if (at === -1) {
+        return middleEllipsis(input, options);
+    }
+
+    const local = input.slice(0, at);
+    const domain = input.slice(at + 1);
+
+    // Shrink only the local part, keeping "@domain" intact...
+    const suffix = "@" + domain;
+    const localBudget = options.maxWidth - measure(suffix);
+
+    if (localBudget >= measure(ellipsis)) {
+        const candidate = middleEllipsis(local, { ...options, maxWidth: localBudget }) + suffix;
+
+        if (measure(candidate) <= options.maxWidth) return candidate;
+    }
+
+    // Then, shrink the domain too. Keep a minimal local head,
+    // ellipsize the domain, then hard-cut the whole thing to guarantee the budget.
+    const domainBudget = Math.max(measure(ellipsis), options.maxWidth - measure("x@"));
+    const shrunkDomain = shrinkHost(domain, { ...options, maxWidth: domainBudget });
+
+    return endEllipsis(local.charAt(0) + "…@" + shrunkDomain, options);
 }

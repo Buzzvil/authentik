@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
-
 import {
     endEllipsis,
     middleEllipsis,
     reducePipeline,
     segmentEllipsis,
 } from "../lib/internal/primitives.js";
+
+import { describe, expect, it } from "vitest";
 
 const cc = (maxWidth: number) => ({ maxWidth });
 

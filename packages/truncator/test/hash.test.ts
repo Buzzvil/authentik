@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-
 import { truncateHash } from "../lib/hash.js";
+
+import { describe, expect, it } from "vitest";
 
 const cc = (maxWidth: number) => ({ maxWidth });
 

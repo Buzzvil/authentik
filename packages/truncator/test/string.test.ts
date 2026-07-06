@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-
 import { truncateString } from "../lib/string.js";
+
+import { describe, expect, it } from "vitest";
 
 const cc = (maxWidth: number) => ({ maxWidth });
 

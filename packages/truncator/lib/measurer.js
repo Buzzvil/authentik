@@ -8,6 +8,7 @@
 
 /**
  * A cost function: how wide is `text`, in whatever unit the caller cares about.
+ *
  * @typedef {(text: string) => number} Measurer
  */
 
@@ -16,7 +17,12 @@
  */
 
 /**
+ * @typedef {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} CanvasContext
+ */
+
+/**
  * The default measurer: one unit per character.
+ *
  * @type {Measurer}
  */
 export function characterMeasurer(text) {
@@ -30,13 +36,12 @@ export function characterMeasurer(text) {
  * single `OffscreenCanvas` may be shared across many measurers.
  *
  * @param {CanvasLike} canvas
- * @param {string} font A CSS font shorthand, e.g. `"14px 'RedHatMono'"`.
+ * @param {string} font A CSS font shorthand, e.g. `"14px monospace"`.
+ *
  * @returns {Measurer}
  */
 export function createCanvasMeasurer(canvas, font) {
-    const ctx = /** @type {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null} */ (
-        canvas.getContext("2d")
-    );
+    const ctx = /** @type {CanvasContext | null} */ (canvas.getContext("2d"));
 
     if (!ctx) {
         throw new Error("truncator: failed to acquire a 2D canvas context");

@@ -6,6 +6,12 @@
         "checkJs": true,
         "emitDeclarationOnly": true
     },
+    "include": [
+        // Only the shipped surface — tests and config are checked by the editor
+        // and run by vitest, and must not land in the published `out/`.
+        "index.js",
+        "lib/**/*"
+    ],
     "exclude": [
         // ---
         "**/out/**/*"
