@@ -4,6 +4,21 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    esbuild:
+      specifier: ^0.28.1
+      version: 0.28.1
+    eslint:
+      specifier: ^9.39.4
+      version: 9.39.4
+    prettier-plugin-packagejson:
+      specifier: ^3.0.2
+      version: 3.0.2
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
+
 overrides:
   '@typescript-eslint/eslint-plugin>typescript': ^6.0.3
   '@typescript-eslint/parser>typescript': ^6.0.3
@@ -36,7 +51,7 @@ importers:
         specifier: ^10.0.1
         version: 10.0.1
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       npm-run-all:
         specifier: ^4.1.5
@@ -51,10 +66,10 @@ importers:
         specifier: 3.8.3
         version: 3.8.3
       prettier-plugin-packagejson:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.2(prettier@3.8.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.62.1
@@ -112,7 +127,7 @@ importers:
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       pino:
         specifier: ^10.3.1
@@ -121,10 +136,10 @@ importers:
         specifier: 3.8.3
         version: 3.8.3
       prettier-plugin-packagejson:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.2(prettier@3.8.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.62.1
@@ -162,10 +177,10 @@ importers:
         specifier: ^25.9.4
         version: 25.9.4
       esbuild:
-        specifier: ^0.28.1
+        specifier: 'catalog:'
         version: 0.28.1
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       pino:
         specifier: ^10.3.1
@@ -174,7 +189,7 @@ importers:
         specifier: 3.8.3
         version: 3.8.3
       prettier-plugin-packagejson:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.2(prettier@3.8.3)
       typedoc:
         specifier: ^0.28.18
@@ -183,7 +198,7 @@ importers:
         specifier: ^4.11.0
         version: 4.12.0(typedoc@0.28.19(typescript@6.0.3))
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.59.3
@@ -192,7 +207,7 @@ importers:
   packages/eslint-config:
     dependencies:
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       eslint-plugin-import:
         specifier: ^2.32.0
@@ -229,7 +244,7 @@ importers:
         specifier: ^25.9.4
         version: 25.9.4
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.62.1
@@ -250,7 +265,7 @@ importers:
         specifier: ^25.9.4
         version: 25.9.4
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       pino:
         specifier: ^10.3.1
@@ -262,10 +277,10 @@ importers:
         specifier: 3.8.3
         version: 3.8.3
       prettier-plugin-packagejson:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.2(prettier@3.8.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.62.1
@@ -287,16 +302,16 @@ importers:
         specifier: ^25.9.4
         version: 25.9.4
       eslint:
-        specifier: ^9.39.4
+        specifier: 'catalog:'
         version: 9.39.4(jiti@1.21.7)
       prettier:
         specifier: 3.8.3
         version: 3.8.3
       prettier-plugin-packagejson:
-        specifier: ^3.0.2
+        specifier: 'catalog:'
         version: 3.0.2(prettier@3.8.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       typescript-eslint:
         specifier: ^8.62.1
@@ -9573,8 +9588,8 @@ snapshots:
 
   '@typescript-eslint/project-service@8.60.1(typescript@6.0.3)':
     dependencies:
-      '@typescript-eslint/tsconfig-utils': 8.60.1(typescript@6.0.3)
-      '@typescript-eslint/types': 8.60.1
+      '@typescript-eslint/tsconfig-utils': 8.62.1(typescript@6.0.3)
+      '@typescript-eslint/types': 8.62.1
       debug: 4.4.3
       typescript: 6.0.3
     transitivePeerDependencies:
