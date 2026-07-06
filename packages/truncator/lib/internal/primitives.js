@@ -70,15 +70,11 @@ export function middleEllipsis(value, opts, config = {}) {
     let tail = 0;
     while (head + tail < chars.length) {
         const growHead = head / Math.max(1, head + tail) < headBias;
-        if (growHead) {
-            if (fits(head + 1, tail)) head++;
-            else if (fits(head, tail + 1)) tail++;
-            else break;
-        } else {
-            if (fits(head, tail + 1)) tail++;
-            else if (fits(head + 1, tail)) head++;
-            else break;
-        }
+        if (growHead && fits(head + 1, tail)) head++;
+        else if (growHead && fits(head, tail + 1)) tail++;
+        else if (!growHead && fits(head, tail + 1)) tail++;
+        else if (!growHead && fits(head + 1, tail)) head++;
+        else break;
     }
 
     if (head === 0 && tail === 0) return ellipsis;
