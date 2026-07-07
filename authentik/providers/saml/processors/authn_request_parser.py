@@ -174,10 +174,16 @@ class AuthNRequestParser:
         except ParseError as exc:
             raise CannotHandleAssertion(ERROR_FAILED_TO_VERIFY) from exc
 
-    def idp_initiated(self) -> AuthNRequest:
+    def idp_initiated(self, relay_state: str | None = None) -> AuthNRequest:
         """Create IdP Initiated AuthNRequest"""
         request = AuthNRequest(relay_state=None)
-        if self.provider.default_relay_state != "":
+        # Buzzvil patch: prefer a RelayState supplied by the SP over the static
+        # default_relay_state. AWS WorkSpaces IdP-initiated SSO appends a per-session
+        # state code via ?RelayState= to the init URL; it must round-trip back to AWS
+        # or the euc-sso auth code cannot be bound to the client session (loop-back).
+        if relay_state:
+            request.relay_state = relay_state
+        elif self.provider.default_relay_state != "":
             request.relay_state = self.provider.default_relay_state
         if self.provider.default_name_id_policy != SAMLNameIDPolicy.UNSPECIFIED:
             request.name_id_policy = self.provider.default_name_id_policy
