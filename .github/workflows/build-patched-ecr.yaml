@@ -1,12 +1,15 @@
 name: build-patched-ecr
 
 # Buzzvil fork: build the WorkSpaces-SAML-patched authentik image and push it to the
-# `authentik` ECR repo (terraform-resource aws/devops/ecr, ap-northeast-1) via the
-# shared reusable build workflow.
+# `authentik` ECR repo (terraform-resource aws/devops/ecr, ap-northeast-1).
 #
-# Prerequisites:
-#   - `authentik` ECR repo exists (terraform-resource #4890 applied).
-#   - This repo can use the org self-hosted runners.
+# Self-contained (build steps inlined from Buzzvil/workflows' build-ecr action) so it
+# does NOT depend on the private reusable workflow or DOCKERHUB/DATADOG org secrets —
+# our base image is ghcr.io, and AWS auth comes from the self-hosted runner's ambient
+# IAM role.
+#
+# Prereqs: `authentik` ECR repo exists (terraform-resource #4890 applied) and this repo
+# can use the org self-hosted runners.
 on:
   push:
     branches:
@@ -15,11 +18,36 @@ on:
 
 jobs:
   build:
-    uses: Buzzvil/workflows/.github/workflows/build-ecr.yaml@main
-    secrets: inherit
-    with:
-      repository: authentik
-      region: ap-northeast-1
-      context: .
-      dockerfile: .buzzvil/Dockerfile
-      tags: 2026.2.1-relaystate-${{ github.sha }},2026.2.1-relaystate
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout (patch files only)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6
+        with:
+          sparse-checkout: |
+            .buzzvil
+            authentik/providers/saml/processors/authn_request_parser.py
+            authentik/providers/saml/views/sso.py
+          sparse-checkout-cone-mode: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6
+        with:
+          aws-region: ap-northeast-1
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076  # v2
+
+      - name: Build and push
+        run: |
+          docker buildx build \
+            --push \
+            --file .buzzvil/Dockerfile \
+            --tag "${{ steps.ecr.outputs.registry }}/authentik:2026.2.1-relaystate-${{ github.sha }}" \
+            --tag "${{ steps.ecr.outputs.registry }}/authentik:2026.2.1-relaystate" \
+            .
