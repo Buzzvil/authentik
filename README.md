@@ -24,11 +24,12 @@ AWS WorkSpaces native client 로그인은 euc-sso 가 IdP init URL 에 **per-ses
 뷰와 달리), state code 가 유실되어 native client 가 sign-in 으로 loop-back 한다.
 (upstream 동일 이슈: goauthentik/authentik#17542)
 
-## 빌드
+## 빌드 / 릴리스
 
-`.buzzvil/Dockerfile` 이 공식 이미지 위에 위 2 파일만 COPY 하는 overlay 이고,
-`.github/workflows/build-patched-ecr.yaml` 가 GitHub-hosted 러너에서 multi-arch 빌드해 GHCR 로 push 한다.
-(별도 self-hosted 러너·AWS·org secret 불필요.)
+`.buzzvil/Dockerfile` 이 공식 이미지 위에 위 2 파일만 COPY 하는 overlay 이고, 빌드 워크플로우
+(`build-patched-ghcr`)가 **`<ver>-relaystate` 태그 push** 시 GitHub-hosted 러너에서 multi-arch(amd64/arm64)
+빌드해 GHCR 로 push 하고 **동일 태그로 GitHub Release 를 함께 생성**한다.
+(별도 self-hosted 러너·AWS·org secret 불필요. 이미지만 재빌드하려면 workflow_dispatch.)
 
 ## 언제 내릴 수 있나 (이 포크 제거 조건)
 
@@ -44,11 +45,11 @@ AWS WorkSpaces native client 로그인은 euc-sso 가 IdP init URL 에 **per-ses
 
 ## 유지보수 (upstream 이 고치기 전까지)
 
-authentik 을 새 버전으로 올릴 때마다 이 2 파일 패치를 새 버전 태그 기준으로 다시 적용해야 한다:
-1. 새 태그(`version/<X.Y.Z>`)에서 브랜치 `buzzvil/workspaces-relaystate-<X.Y.Z>` 생성
-2. 위 2 파일 패치 재적용(작고 self-contained)
-3. `.buzzvil/Dockerfile` 의 `FROM ... :<X.Y.Z>` 갱신, 이미지 태그도 `<X.Y.Z>-relaystate`
-4. 빌드 → ops `global.image` tag 갱신 → WorkSpaces 로그인 재검증
+authentik 을 새 버전으로 올릴 때마다 이 2 파일 패치를 새 버전 기준으로 다시 적용한다:
+1. upstream 태그(`version/<X.Y.Z>`)에서 브랜치 `buzzvil/workspaces-relaystate-<X.Y.Z>` 생성
+2. 위 2 파일 패치 재적용(작고 self-contained), `.buzzvil/Dockerfile` 의 `FROM ...:<X.Y.Z>` 갱신
+3. 그 커밋에 태그 **`<X.Y.Z>-relaystate`** push → 워크플로우가 멀티아치 이미지 빌드 + 동일 태그 Release 생성
+4. ops(buzz-k8s-resources) 의 `global.image` tag 를 `<X.Y.Z>-relaystate` 로 갱신 → WorkSpaces 로그인 재검증
 
 ---
 
