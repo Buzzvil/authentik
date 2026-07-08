@@ -1,0 +1,25 @@
+name: build-patched-ecr
+
+# Buzzvil fork: build the WorkSpaces-SAML-patched authentik image and push it to the
+# `authentik` ECR repo (terraform-resource aws/devops/ecr, ap-northeast-1) via the
+# shared reusable build workflow.
+#
+# Prerequisites:
+#   - `authentik` ECR repo exists (terraform-resource #4890 applied).
+#   - This repo can use the org self-hosted runners.
+on:
+  push:
+    branches:
+      - buzzvil/workspaces-relaystate-2026.2.1
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: Buzzvil/workflows/.github/workflows/build-ecr.yaml@main
+    secrets: inherit
+    with:
+      repository: authentik
+      region: ap-northeast-1
+      context: .
+      dockerfile: .buzzvil/Dockerfile
+      tags: 2026.2.1-relaystate-${{ github.sha }},2026.2.1-relaystate
