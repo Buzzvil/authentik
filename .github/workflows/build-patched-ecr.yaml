@@ -1,15 +1,18 @@
 name: build-patched-ghcr
 
 # authentik 패치 이미지 빌드 + GitHub Release 를 함께 생성.
+# 오버레이 패치 목록·경로는 .buzzvil/Dockerfile 참고 (SAML RelayState + OAuth2 CORS regex).
 #
 # 트리거: '<authentik version>-relaystate' 형태의 태그 push (예: 2026.2.1-relaystate).
 #         태그명 = 이미지 태그 = release 태그 → 빌드와 release 가 항상 한 쌍으로 생성된다.
+#         (git 태그명이 'relaystate' 인 것은 최초 SAML 패치 시절의 관례일 뿐, 이미지에는
+#          Dockerfile 이 COPY 하는 모든 포크 패치가 포함된다.)
 #
 # 새 authentik 버전 릴리스 절차:
-#   1) 새 브랜치(buzzvil/workspaces-relaystate-<ver>)에서 .buzzvil/Dockerfile 의 FROM 을
-#      그 버전으로 바꾸고 SAML 2 파일 패치를 재적용.
+#   1) 새 브랜치(buzzvil/*-<ver>)에서 .buzzvil/Dockerfile 의 FROM 을 그 버전으로 바꾸고
+#      포크 패치(SAML 2파일 + oauth2 CORS 4파일)를 재적용, sparse-checkout 목록도 맞춘다.
 #   2) 그 커밋에 태그 '<ver>-relaystate' 를 push  →  이 워크플로우가 이미지 빌드 + release 생성.
-#   3) ops(buzz-k8s-resources) 의 global.image tag 를 갱신하고 WorkSpaces 로그인 재검증.
+#   3) ops(buzz-k8s-resources) 의 global.image tag 를 갱신하고 로그인/CORS 재검증.
 on:
   push:
     tags:
@@ -37,6 +40,10 @@ jobs:
             .buzzvil
             authentik/providers/saml/processors/authn_request_parser.py
             authentik/providers/saml/views/sso.py
+            authentik/providers/oauth2/utils.py
+            authentik/providers/oauth2/views/token.py
+            authentik/providers/oauth2/views/userinfo.py
+            authentik/providers/oauth2/views/provider.py
           sparse-checkout-cone-mode: false
 
       - name: Set up QEMU
@@ -68,7 +75,7 @@ jobs:
         run: |
           gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --title "${{ github.ref_name }} — WorkSpaces SAML RelayState patch" \
-            --notes "패치 이미지: \`ghcr.io/buzzvil/authentik:${{ github.ref_name }}\` (multi-arch amd64/arm64, public). 패치 내용·빌드·제거 조건은 저장소 README 참고." \
+            --title "${{ github.ref_name }} — Buzzvil patched authentik (SAML RelayState + OAuth2 CORS regex)" \
+            --notes "패치 이미지: \`ghcr.io/buzzvil/authentik:${{ github.ref_name }}\` (multi-arch amd64/arm64, public). 오버레이 패치 목록·빌드·제거 조건은 .buzzvil/Dockerfile 및 저장소 README 참고." \
             --verify-tag \
             || echo "release for ${{ github.ref_name }} already exists — skipping"
