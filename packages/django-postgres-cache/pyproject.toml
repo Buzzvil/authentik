@@ -31,7 +31,7 @@ classifiers = [
 ]
 
 dependencies = [
-  "django >=4.2,<6.0",
+  "django>=5.2.16,<6.0",
   "django-postgres-extra >=2.0,<2.1",
 ]
 
