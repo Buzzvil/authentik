@@ -72,6 +72,37 @@ class TestUserinfo(OAuthTestCase):
         )
         self.assertEqual(res.status_code, 200)
 
+    def test_userinfo_and_discovery_regex_cors(self):
+        """Both public discovery and authenticated userinfo retain regex matching."""
+        self.provider.redirect_uris = [
+            RedirectURI(RedirectURIMatchingMode.REGEX, r"https://app-\w+\.example\.com")
+        ]
+        self.provider.save()
+        urls = [
+            reverse("authentik_providers_oauth2:userinfo"),
+            reverse(
+                "authentik_providers_oauth2:provider-info",
+                kwargs={"application_slug": self.app.slug},
+            ),
+        ]
+        for url in urls:
+            for origin, allowed in [
+                ("https://app-abc.example.com", True),
+                ("https://app-abc.example.com.attacker.invalid", False),
+            ]:
+                with self.subTest(url=url, origin=origin):
+                    response = self.client.get(
+                        url,
+                        HTTP_AUTHORIZATION=f"Bearer {self.token.token}",
+                        HTTP_ORIGIN=origin,
+                    )
+                    self.assertEqual(response.status_code, 200)
+                    if allowed:
+                        self.assertEqual(response["Access-Control-Allow-Origin"], origin)
+                        self.assertEqual(response["Access-Control-Allow-Credentials"], "true")
+                    else:
+                        self.assertNotIn("Access-Control-Allow-Origin", response)
+
     def test_userinfo_invalid_scope(self):
         """test user info with a broken scope"""
         scope = ScopeMapping.objects.create(name="test", scope_name="openid", expression="q")
