@@ -742,6 +742,15 @@ class TestAuthNRequest(TestCase):
         self.assertEqual(request.id, None)
         self.assertEqual(request.relay_state, self.provider.default_relay_state)
 
+    def test_idp_initiated_prefers_request_relay_state(self):
+        """A per-session RelayState from the SP overrides the provider default."""
+        self.provider.default_relay_state = generate_id()
+        relay_state = generate_id()
+
+        request = AuthNRequestParser(self.provider).idp_initiated(relay_state=relay_state)
+
+        self.assertEqual(request.relay_state, relay_state)
+
     def test_doctype(self):
         """Test that a request with a document type declaration is refused"""
         request = (
