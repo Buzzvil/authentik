@@ -4,9 +4,9 @@ This overlay preserves two integrations used by Buzzvil:
 
 - AWS WorkSpaces IdP-initiated SAML passes the request's `RelayState` through to
   the response. An absent or empty value falls back to the provider default.
-- OAuth2 token, userinfo and discovery endpoints honour each redirect URI's
+- OAuth2 token, userinfo and discovery endpoints honor each redirect URI's
   matching mode when checking the CORS Origin. Regex entries use `re.fullmatch`;
-  malformed expressions are skipped. Strict matching and OPTIONS behaviour are
+  malformed expressions are skipped. Strict matching and OPTIONS behavior are
   unchanged. A regex requiring a callback path does not match a bare Origin;
   configure an optional path or a separate allowed origin where necessary.
 
