@@ -206,6 +206,46 @@ class TestToken(OAuthTestCase):
         )
         self.validate_jwt(access, provider)
 
+    def test_auth_code_regex_cors(self):
+        """A real token exchange permits only origins matching the provider regex."""
+        provider = OAuth2Provider.objects.create(
+            name=generate_id(),
+            authorization_flow=create_test_flow(),
+            grant_types=[GrantType.AUTHORIZATION_CODE],
+            redirect_uris=[
+                RedirectURI(RedirectURIMatchingMode.REGEX, r"https://app-\w+\.example\.com")
+            ],
+            signing_key=self.keypair,
+        )
+        self.app.provider = provider
+        self.app.save()
+        header = b64encode(f"{provider.client_id}:{provider.client_secret}".encode()).decode()
+        user = create_test_admin_user()
+        for origin, allowed in [
+            ("https://app-abc.example.com", True),
+            ("https://app-abc.example.com.attacker.invalid", False),
+        ]:
+            with self.subTest(origin=origin):
+                code = AuthorizationCode.objects.create(
+                    code=generate_id(), provider=provider, user=user, auth_time=timezone.now()
+                )
+                response = self.client.post(
+                    reverse("authentik_providers_oauth2:token"),
+                    data={
+                        "grant_type": GRANT_TYPE_AUTHORIZATION_CODE,
+                        "code": code.code,
+                        "redirect_uri": "https://app-abc.example.com",
+                    },
+                    HTTP_AUTHORIZATION=f"Basic {header}",
+                    HTTP_ORIGIN=origin,
+                )
+                self.assertEqual(response.status_code, 200)
+                if allowed:
+                    self.assertEqual(response["Access-Control-Allow-Origin"], origin)
+                    self.assertEqual(response["Access-Control-Allow-Credentials"], "true")
+                else:
+                    self.assertNotIn("Access-Control-Allow-Origin", response)
+
     def test_auth_code_enc(self):
         """test request param"""
         provider = OAuth2Provider.objects.create(

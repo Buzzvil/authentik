@@ -35,6 +35,8 @@ from authentik.providers.saml.exceptions import CannotHandleAssertion
 from authentik.providers.saml.models import SAMLBindings, SAMLPropertyMapping, SAMLProvider
 from authentik.providers.saml.processors.assertion import AssertionProcessor
 from authentik.providers.saml.processors.authn_request_parser import AuthNRequestParser
+from authentik.providers.saml.views.flows import PLAN_CONTEXT_SAML_AUTH_N_REQUEST
+from authentik.providers.saml.views.sso import SAMLSSOBindingInitView
 from authentik.sources.saml.exceptions import MismatchedRequestID
 from authentik.sources.saml.models import SAMLBindingTypes, SAMLSource
 from authentik.sources.saml.processors.request import SESSION_KEY_REQUEST_ID, RequestProcessor
@@ -741,6 +743,45 @@ class TestAuthNRequest(TestCase):
         request = AuthNRequestParser(self.provider).idp_initiated()
         self.assertEqual(request.id, None)
         self.assertEqual(request.relay_state, self.provider.default_relay_state)
+
+    def test_idp_initiated_prefers_request_relay_state(self):
+        """A per-session RelayState from the SP overrides the provider default."""
+        self.provider.default_relay_state = generate_id()
+        relay_state = generate_id()
+
+        request = AuthNRequestParser(self.provider).idp_initiated(relay_state=relay_state)
+
+        self.assertEqual(request.relay_state, relay_state)
+
+    def test_idp_initiated_empty_relay_state_uses_default(self):
+        """An empty query parameter preserves the configured default."""
+        self.provider.default_relay_state = generate_id()
+
+        request = AuthNRequestParser(self.provider).idp_initiated(relay_state="")
+
+        self.assertEqual(request.relay_state, self.provider.default_relay_state)
+
+    def test_idp_initiated_without_relay_state(self):
+        """No request or default RelayState leaves the response state unset."""
+        self.provider.default_relay_state = ""
+
+        request = AuthNRequestParser(self.provider).idp_initiated()
+
+        self.assertIsNone(request.relay_state)
+
+    def test_idp_initiated_view_forwards_query_relay_state(self):
+        """The WorkSpaces init URL forwards the decoded per-session state intact."""
+        self.provider.default_relay_state = "static-default"
+        relay_state = "workspaces-session+code/=with-special-characters"
+        request = self.request_factory.get("/", {"RelayState": relay_state})
+        view = SAMLSSOBindingInitView()
+        view.setup(request)
+        view.provider = self.provider
+
+        view.check_saml_request()
+
+        auth_n_request = view.plan_context[PLAN_CONTEXT_SAML_AUTH_N_REQUEST]
+        self.assertEqual(auth_n_request.relay_state, relay_state)
 
     def test_doctype(self):
         """Test that a request with a document type declaration is refused"""

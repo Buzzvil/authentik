@@ -1,0 +1,13 @@
+# Test dependencies and regression tests are isolated from the published image.
+ARG PATCHED_IMAGE=authentik-buzzvil:2026.5.7-test
+FROM ${PATCHED_IMAGE}
+USER root
+RUN uv pip install --python /ak-root/.venv/bin/python \
+    'pytest==9.0.3' 'pytest-django==4.12.0' 'pytest-randomly==4.1.0' \
+    'freezegun==1.5.5' 'requests-mock==1.12.1' 'coverage[toml]==7.13.5' \
+    'selenium==4.43.0'
+COPY --chown=authentik:authentik authentik/providers/oauth2/tests/ /authentik/providers/oauth2/tests/
+COPY --chown=authentik:authentik authentik/providers/saml/tests/ /authentik/providers/saml/tests/
+USER authentik
+ENTRYPOINT ["python", "/manage.py"]
+CMD ["test", "authentik/providers/oauth2/tests", "authentik/providers/saml/tests"]
