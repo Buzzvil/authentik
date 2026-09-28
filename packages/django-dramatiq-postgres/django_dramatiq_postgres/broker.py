@@ -31,6 +31,7 @@ from psycopg import sql
 from psycopg.errors import AdminShutdown
 from structlog.stdlib import get_logger
 
+from authentik.lib.utils.db import chunked_queryset
 from django_dramatiq_postgres.conf import Conf
 from django_dramatiq_postgres.models import CHANNEL_PREFIX, ChannelIdentifier, TaskBase, TaskState
 
@@ -46,6 +47,11 @@ DATABASE_ERRORS = (
     DatabaseError,
     OperationalError,
 )
+
+CONSUMABLE_TASK_STATES: set[TaskState] = set(TaskState) - {
+    TaskState.DONE,
+    TaskState.REJECTED,
+}
 
 
 def channel_name(queue_name: str, identifier: ChannelIdentifier) -> str:
@@ -272,6 +278,13 @@ class _PostgresConsumer(Consumer):
     def locks_connection(self) -> DatabaseWrapper:
         if self._locks_connection is not None and self._locks_connection.is_usable():
             return self._locks_connection
+
+        if self._locks_connection is not None:
+            try:
+                self._locks_connection.close()
+            except DATABASE_ERRORS as exc:
+                self.logger.warning("Failed to close old unusable locks connection", exc=exc)
+
         self._locks_connection = cast(DatabaseWrapper, connections.create_connection(self.db_alias))
         return self._locks_connection
 
@@ -279,6 +292,13 @@ class _PostgresConsumer(Consumer):
     def listen_connection(self) -> DatabaseWrapper:
         if self._listen_connection is not None and self._listen_connection.is_usable():
             return self._listen_connection
+
+        if self._listen_connection is not None:
+            try:
+                self._listen_connection.close()
+            except DATABASE_ERRORS as exc:
+                self.logger.warning("Failed to close old unusable listen connection", exc=exc)
+
         self._listen_connection = cast(
             DatabaseWrapper, connections.create_connection(self.db_alias)
         )
@@ -301,7 +321,7 @@ class _PostgresConsumer(Consumer):
         pending = set(
             self.query_set.exclude(message_id__in=self.in_processing)
             .filter(queue_name=self.queue_name)
-            .exclude(state__in=(TaskState.DONE, TaskState.REJECTED))
+            .filter(state__in=CONSUMABLE_TASK_STATES)
             .exclude(eta__gte=timezone.now() + timedelta(seconds=self.timeout))
             .order_by(F("eta").asc(nulls_first=True))
             .values_list("message_id", flat=True)
@@ -337,7 +357,7 @@ class _PostgresConsumer(Consumer):
                     WHERE
                         {table}.{message_id} = %(message_id)s
                         AND
-                        {table}.{state} != ALL(%(excluded_states)s)
+                        {table}.{state} = ANY(%(consumable_states)s)
                         AND
                         ({table}.{eta} < %(maximum_eta)s OR {table}.{eta} IS NULL)
                         AND
@@ -353,7 +373,7 @@ class _PostgresConsumer(Consumer):
                     "state": TaskState.CONSUMED.value,
                     "mtime": timezone.now(),
                     "message_id": message_id,
-                    "excluded_states": [TaskState.DONE.value, TaskState.REJECTED.value],
+                    "consumable_states": [state.value for state in CONSUMABLE_TASK_STATES],
                     "maximum_eta": timezone.now() + timedelta(seconds=self.timeout),
                     "lock_id": self._get_message_lock_id(message_id),
                 },
@@ -503,7 +523,7 @@ class _PostgresConsumer(Consumer):
         if timezone.now() - self.scheduler_last_run < self.scheduler_interval:
             return
         self.scheduler.run()
-        self.schedule_last_run = timezone.now()
+        self.scheduler_last_run = timezone.now()
 
     def _purge_locks(self) -> None:
         while True:
@@ -518,11 +538,17 @@ class _PostgresConsumer(Consumer):
         if timezone.now() - self.task_purge_last_run < self.task_purge_interval:
             return
         self.logger.debug("Running garbage collector")
-        count = self.query_set.filter(
-            state__in=(TaskState.DONE, TaskState.REJECTED),
-            mtime__lte=timezone.now() - timedelta(seconds=Conf().task_expiration),
-            result_expiry__lte=timezone.now(),
-        ).delete()
+        count = 0
+        for task in chunked_queryset(
+            self.query_set.filter(
+                state__in=(TaskState.DONE, TaskState.REJECTED),
+                mtime__lte=timezone.now() - timedelta(seconds=Conf().task_expiration),
+                result_expiry__lte=timezone.now(),
+            ),
+            chunk_size=100,
+        ):
+            task.delete()
+            count += 1
         self.logger.info("Purged messages in all queues", count=count)
         self.task_purge_last_run = timezone.now()
 
