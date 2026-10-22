@@ -4,7 +4,7 @@ name: build-patched-ghcr
 # 오버레이 패치 목록·경로는 .buzzvil/Dockerfile 참고 (SAML RelayState + OAuth2 CORS regex).
 #
 # 트리거: '<authentik version>-cors-relaystate' 형태의 태그 push
-#         (예: 2026.8.3-cors-relaystate).
+#         (예: 2026.8.5-cors-relaystate).
 #         태그명 = 이미지 태그 = release 태그 → 빌드와 release 가 항상 한 쌍으로 생성된다.
 #         (git 태그명이 'relaystate' 인 것은 최초 SAML 패치 시절의 관례일 뿐, 이미지에는
 #          Dockerfile 이 COPY 하는 모든 포크 패치가 포함된다.)
@@ -17,12 +17,14 @@ name: build-patched-ghcr
 #   3) ops(buzz-k8s-resources) 의 global.image tag 를 갱신하고 로그인/CORS 재검증.
 on:
   push:
+    branches:
+      - 'VULN-688/**'
     tags:
       - '*-relaystate'
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "이미지 태그 (예: 2026.8.3-cors-relaystate). 이미지만 rebuild (release 미생성)."
+        description: "이미지 태그 (예: 2026.8.5-cors-relaystate). 이미지만 rebuild (release 미생성)."
         required: true
 
 permissions:
@@ -30,13 +32,76 @@ permissions:
   packages: write   # GHCR push
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+
+      - name: Build isolated regression image
+        run: |
+          docker build --pull -f .buzzvil/Dockerfile -t authentik-buzzvil:2026.8.5-test .
+          docker build -f .buzzvil/Dockerfile.test -t authentik-buzzvil:2026.8.5-regression .
+
+      - name: Verify CA stores and installed tools
+        run: |
+          docker run --rm -i --entrypoint python authentik-buzzvil:2026.8.5-test - <<'PY'
+          import importlib.metadata
+          import ssl
+          import subprocess
+          import certifi
+
+          assert importlib.metadata.version("certifi") == "2026.10.19"
+          assert subprocess.check_output(["uv", "--version"], text=True).split()[:2] == ["uv", "0.13.4"]
+          ca_version = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "ca-certificates"], text=True)
+          subprocess.run(["dpkg", "--compare-versions", ca_version, "ge", "20250419+deb13u1"], check=True)
+          blocked = {"emSign ECC Root CA - G3", "emSign Root TLS CA - G3", "AAA Certificate Services"}
+          for label, context in {"OS": ssl.create_default_context(), "certifi": ssl.create_default_context(cafile=certifi.where())}.items():
+              roots = context.get_ca_certs()
+              assert roots, label + ": empty trust store"
+              names = {value for cert in roots for rdn in cert["subject"] for key, value in rdn if key == "commonName"}
+              assert not names & blocked, label + ": compromised CA remains trusted"
+              print(label + ": patched CA store verified")
+          print("ca-certificates=" + ca_version)
+          PY
+
+      - name: Run OAuth2 and SAML regression suites
+        env:
+          TEST_NETWORK: authentik-test-${{ github.run_id }}-${{ github.run_attempt }}
+          TEST_DATABASE: authentik-postgres-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          trap 'docker rm -f "$TEST_DATABASE" >/dev/null 2>&1 || true; docker network rm "$TEST_NETWORK" >/dev/null 2>&1 || true' EXIT
+          docker network create "$TEST_NETWORK"
+          docker run -d --name "$TEST_DATABASE" --network "$TEST_NETWORK" --network-alias postgres \
+            -e POSTGRES_DB=authentik -e POSTGRES_USER=authentik -e POSTGRES_PASSWORD=ci-only-test-password \
+            postgres:17.11-bookworm
+          for attempt in $(seq 1 30); do
+            if docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik; then break; fi
+            sleep 2
+          done
+          docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik
+          docker run --rm --network "$TEST_NETWORK" \
+            -e AUTHENTIK_POSTGRESQL__HOST=postgres \
+            -e AUTHENTIK_POSTGRESQL__NAME=authentik \
+            -e AUTHENTIK_POSTGRESQL__USER=authentik \
+            -e AUTHENTIK_POSTGRESQL__PASSWORD=ci-only-test-password \
+            -e AUTHENTIK_SECRET_KEY=ci-only-synthetic-key \
+            -e PYTEST_ADDOPTS='--junitxml=/tmp/unittest.xml -o cache_dir=/tmp/pytest-cache' \
+            authentik-buzzvil:2026.8.5-regression
+
   build:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     env:
       IMAGE_TAG: ${{ github.event.inputs.image_tag || github.ref_name }}
     steps:
       - name: Checkout (patch files only)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           sparse-checkout: |
             .buzzvil
@@ -49,20 +114,20 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
           file: .buzzvil/Dockerfile

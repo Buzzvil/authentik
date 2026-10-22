@@ -1,5 +1,5 @@
 # Test dependencies and regression tests are isolated from the published image.
-ARG PATCHED_IMAGE=authentik-buzzvil:2026.8.3-test
+ARG PATCHED_IMAGE=authentik-buzzvil:2026.8.5-test
 FROM ${PATCHED_IMAGE}
 USER root
 RUN uv pip install --python /ak-root/.venv/bin/python \

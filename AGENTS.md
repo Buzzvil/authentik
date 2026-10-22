@@ -112,6 +112,8 @@ make lint-catalogs     # pnpm catalog pins in sync across the root/web/website w
 
 CI mirrors these as `ci-lint-*` / `ci-test` targets. Run the matching `make lint` / `make test` (plus `make web` / `make docs` for those subtrees) before pushing — CI runs the same checks.
 
+Buzzvil release overlays are documented in `.buzzvil/README.md`. The patched-image workflow verifies the final image's CA stores and runs the OAuth2/SAML suites with an isolated test PostgreSQL before publishing. Its `VULN-688/**` branch trigger verifies without publishing.
+
 ## API schema & clients
 
 The REST API is the contract between the Django core and everything else, and it is **generated, not authored**:
