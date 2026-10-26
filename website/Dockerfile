@@ -8,8 +8,10 @@ ENV NODE_ENV=production
 
 WORKDIR /work
 
-COPY --from=pnpm /opt/pnpm /opt/pnpm
-ENV PATH="/opt/pnpm:${PATH}"
+# Use the pinned pnpm JavaScript with the patched Node, rather than its bundled runtime.
+COPY --from=pnpm /opt/pnpm/dist /opt/pnpm/dist
+RUN printf '%s\n' '#!/bin/sh' 'exec node /opt/pnpm/dist/pnpm.mjs "$@"' > /usr/local/bin/pnpm && \
+    chmod +x /usr/local/bin/pnpm
 
 RUN --mount=type=bind,target=/work/package.json,src=./package.json \
     --mount=type=bind,target=/work/scripts/node/,src=./scripts/node/ \
