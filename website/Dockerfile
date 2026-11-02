@@ -2,14 +2,16 @@
 # keeps the binary's arch aligned with the builder stage on cross-arch builds.
 FROM --platform=${BUILDPLATFORM} ghcr.io/pnpm/pnpm:11.10.0@sha256:9a6eb06d5f861d830fe27d85a91415e60527fa45ec45b52ee43c92a8aaf3bf8a AS pnpm
 
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:26.4.0-trixie@sha256:b46a10d964ad15136ebdf9012142131481caa0697d7a4d4eafe4bbabd818f876 AS docs-builder
+FROM --platform=${BUILDPLATFORM} docker.io/library/node:26.12.1-trixie@sha256:62314d97177e4101f03b48d49e431fb3ee4e50f1e8cac67887a77b52eed57beb AS docs-builder
 
 ENV NODE_ENV=production
 
 WORKDIR /work
 
-COPY --from=pnpm /opt/pnpm /opt/pnpm
-ENV PATH="/opt/pnpm:${PATH}"
+# Use the pinned pnpm JavaScript with the patched Node, rather than its bundled runtime.
+COPY --from=pnpm /opt/pnpm/dist /opt/pnpm/dist
+RUN printf '%s\n' '#!/bin/sh' 'exec node /opt/pnpm/dist/pnpm.mjs "$@"' > /usr/local/bin/pnpm && \
+    chmod +x /usr/local/bin/pnpm
 
 RUN --mount=type=bind,target=/work/package.json,src=./package.json \
     --mount=type=bind,target=/work/scripts/node/,src=./scripts/node/ \
