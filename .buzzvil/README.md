@@ -196,6 +196,13 @@ Non-sensitive local observations on 2026-11-03, without a DB connection:
   This does not rule out another context or a remote engine. Engine availability
   and container-to-PG routing are NOT_QUALIFIED; no daemon/API/probe was started.
   `host.docker.internal` is not assumed to reach this loopback-only server.
+  An expanded process-name-only snapshot also observes four existing
+  `container-runtime-linux` workers from the desktop application's platform.
+  Their ownership/isolation, Docker-recipe compatibility and PG route are not
+  qualified. Preserve those workers; a qualified existing runtime would be
+  preferable to installing/starting another engine, but this is not permission
+  to inspect their container contents or change their lifecycle.
+  Neither `container` nor `docker` was found on this shell's current PATH.
 
 Separate the required evidence and approve only the next missing stage:
 
