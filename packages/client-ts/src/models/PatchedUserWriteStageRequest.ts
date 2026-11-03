@@ -59,6 +59,12 @@ export interface PatchedUserWriteStageRequest {
      * @memberof PatchedUserWriteStageRequest
      */
     userPathTemplate?: string;
+    /**
+     * When set, only update this top-level email verification attribute on an existing active user whose identity and email still match the pending user. Requires Never create users and no group assignment.
+     * @type {string}
+     * @memberof PatchedUserWriteStageRequest
+     */
+    emailVerificationAttribute?: string;
 }
 
 /**
@@ -94,6 +100,10 @@ export function PatchedUserWriteStageRequestFromJSONTyped(
         userType: json["user_type"] == null ? undefined : UserTypeEnumFromJSON(json["user_type"]),
         userPathTemplate:
             json["user_path_template"] == null ? undefined : json["user_path_template"],
+        emailVerificationAttribute:
+            json["email_verification_attribute"] == null
+                ? undefined
+                : json["email_verification_attribute"],
     };
 }
 
@@ -116,5 +126,6 @@ export function PatchedUserWriteStageRequestToJSONTyped(
         create_users_group: value["createUsersGroup"],
         user_type: UserTypeEnumToJSON(value["userType"]),
         user_path_template: value["userPathTemplate"],
+        email_verification_attribute: value["emailVerificationAttribute"],
     };
 }

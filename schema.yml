@@ -33027,6 +33027,10 @@ paths:
         schema:
           type: string
           format: uuid
+      - in: query
+        name: email_verification_attribute
+        schema:
+          type: string
       - $ref: '#/components/parameters/QueryName'
       - $ref: '#/components/parameters/QueryPaginationOrdering'
       - $ref: '#/components/parameters/QueryPaginationPage'
@@ -51637,6 +51641,12 @@ components:
           $ref: '#/components/schemas/UserTypeEnum'
         user_path_template:
           type: string
+        email_verification_attribute:
+          type: string
+          description: When set, only update this top-level email verification attribute
+            on an existing active user whose identity and email still match the pending
+            user. Requires Never create users and no group assignment.
+          maxLength: 150
     PatchedWSFederationProviderRequest:
       type: object
       description: WSFederationProvider Serializer
@@ -58615,6 +58625,12 @@ components:
           $ref: '#/components/schemas/UserTypeEnum'
         user_path_template:
           type: string
+        email_verification_attribute:
+          type: string
+          description: When set, only update this top-level email verification attribute
+            on an existing active user whose identity and email still match the pending
+            user. Requires Never create users and no group assignment.
+          maxLength: 150
       required:
       - component
       - flow_set
@@ -58644,6 +58660,12 @@ components:
           $ref: '#/components/schemas/UserTypeEnum'
         user_path_template:
           type: string
+        email_verification_attribute:
+          type: string
+          description: When set, only update this top-level email verification attribute
+            on an existing active user whose identity and email still match the pending
+            user. Requires Never create users and no group assignment.
+          maxLength: 150
       required:
       - name
     ValidationError:
