@@ -8,6 +8,8 @@ RUN uv pip install --python /ak-root/.venv/bin/python \
     'selenium==4.43.0'
 COPY --chown=authentik:authentik authentik/providers/oauth2/tests/ /authentik/providers/oauth2/tests/
 COPY --chown=authentik:authentik authentik/providers/saml/tests/ /authentik/providers/saml/tests/
+COPY --chown=authentik:authentik authentik/stages/user_write/tests.py /authentik/stages/user_write/tests.py
+COPY --chown=authentik:authentik authentik/stages/user_write/test_email_verification.py /authentik/stages/user_write/test_email_verification.py
 USER authentik
 ENTRYPOINT ["python", "/manage.py"]
-CMD ["test", "authentik/providers/oauth2/tests", "authentik/providers/saml/tests"]
+CMD ["test", "authentik/providers/oauth2/tests", "authentik/providers/saml/tests", "authentik/stages/user_write/tests.py::TestUserWriteStage::test_user_update_no_change", "authentik/stages/user_write/test_email_verification.py"]
