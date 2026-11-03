@@ -231,7 +231,8 @@ Separate the required evidence and approve only the next missing stage:
    They avoid binfmt privilege. GitHub documents these labels for private
    repositories ([runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
    [private arm64 availability](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)).
-   This is a proposed future recipe, not a silent runner/workflow switch here.
+   The later 7532 entry below implements these native jobs only behind an
+   explicit artifact-only dispatch; the original release recipe is retained.
    A second option is the current one hosted verify VM plus one privileged
    QEMU setup; its larger privilege scope must be decided explicitly.
 
@@ -289,3 +290,113 @@ reserved fixture, no server restart/drop/recreate. Source rollback is this
 review-follow-up commit only. Operating rollback remains the separate
 fail-closed contract above. None of these execution permissions is supplied by
 this source review packet.
+
+## Exact manual A entry (7532; source prepared, execution not authorized)
+
+The owned `.github/workflows/build-patched-ecr.yaml` now has an explicit
+`mode=artifact-only` path. The default remains `release`, including the existing
+required `image_tag` input, verification/native/full-suite dependency and write
+permissions. Push/tag events retain that path. An ordinary PR or feature push
+cannot select A; A requires `workflow_dispatch` and the exact mode. Unknown
+manual modes select neither A nor release. No workflow was dispatched here.
+
+Primary metadata for `Buzzvil/authentik` on 2026-11-03 shows workflow ID
+`309031317`, path `.github/workflows/build-patched-ecr.yaml`, state `active`.
+The default branch is `main`; its contents API returns HTTP404 for this path.
+This is distinct from absence of a registered workflow: the same ID has eleven
+recorded runs, including successful normal `workflow_dispatch` run `39741634524`
+from `VULN-688/authentik-2026-8-5` at `415a4e7a541910221a6a7c6db657463915906a27`.
+GitHub documents a default-branch requirement for initial/manual UI registration,
+and the existing-workflow API/CLI branch route after a workflow has run
+([event contract](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch),
+[CLI manual dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)).
+The registered ID plus observed history supplies the normal CLI route; it does
+not prove a new A execution succeeded. Do not add a service registration,
+change default-branch settings, create a tag or probe dispatch to test it.
+A future HTTP404/422 or unavailable runner stops the attempt; do not fall back
+to a release event or another ref. `gh workflow run --help` confirms ID and
+`--ref` branch/tag selection; A intentionally accepts branches only.
+
+After review of this PR's exact head and a separate explicit approval covering
+the resources below, use the registered ID and reviewed branch:
+
+```sh
+gh workflow run 309031317 --repo Buzzvil/authentik \
+  --ref fix/user-write-image-payload-7387 \
+  -f mode=artifact-only \
+  -f source_ref=fix/user-write-image-payload-7387 \
+  -f source_sha=FULL_REVIEWED_PR40_HEAD_SHA \
+  -f platforms=both \
+  -f image_tag=2026.8.5-cors-relaystate
+```
+
+The final DB execution packet supplies the literal full SHA after the source
+commit is published; the placeholder above is deliberately not executable.
+The legacy required `image_tag` is passed for input compatibility and is unused
+by A. `platforms=both` is the default; `linux/amd64` or `linux/arm64` selects one
+native job. Source selection has no `latest` default. An advance of the reviewed
+branch requires a fresh reviewed SHA/decision, not silently substituting HEAD.
+The full workflow version containing this mode must be present at that exact
+remote branch head; PR merge or deployment is not performed by the command.
+
+A checks repository identity, a lowercase full 40-character SHA, the selected
+branch/GITHUB_REF, event SHA, workflow-definition SHA and current remote branch
+head before checkout. It checks out that SHA without persisting credentials,
+checks local HEAD, and rechecks remote head before issuing a success receipt.
+Missing, stale, tag-based or mismatched input fails closed. Native `uname -m`
+must match the chosen runner; no QEMU/binfmt or engine installation is used.
+
+For `both`, the execution scope is exactly two new ephemeral GitHub hosted
+jobs/VMs (`ubuntu-24.04`, `ubuntu-24.04-arm`), two derived production images,
+and two short-lived Python-only check containers, plus pinned base/index/layer
+and repository downloads, local build cache and 14-day CI artifacts. This is
+CI-local synthetic packaging qualification, not a dev/staging/production DB
+target. Each job uses `contents: read` only; the existing release permission
+block is unchanged. The read-only GitHub token is scoped to checkout/head
+queries, is not persisted, and is not passed to the build or container. Artifact
+upload uses the job's normal artifact runtime capability, not registry write.
+
+The sparse source context contains the owned overlay recipe/checker/manifest,
+Docker ignore rules and the eleven runtime files. There is one production
+`docker build --pull --platform ... --iidfile ...` per selected native job. The
+recorded local image ID, actual inspected OS/architecture and OCI source label
+must match the selected source/platform. The check runs by that immutable local
+ID, not by an unqualified tag, using:
+
+```text
+--read-only --network none --cap-drop ALL --security-opt no-new-privileges
+--entrypoint python ... -I /payload/verify-payload.py installed
+--manifest /payload/payload.json
+```
+
+The owned checker imports only the standard library. Overriding the inherited
+`dumb-init -- ak` entrypoint and command starts no server/worker/Django migration.
+The container receives only a read-only overlay mount and has no outbound
+network or DB configuration. A creates no PG server/native fixture, test image,
+custom Docker network, privileged helper, registry push/login, Release, GitOps
+operation, operating API call or user access change. Build network access is
+limited by the pinned recipe's normal base retrieval; repository/head/artifact
+traffic uses the existing GitHub endpoints. This is not a new network-policy
+permission or a claim that a global egress filter was installed.
+
+Each `authentik-A-<sha>-<platform>-<run>-<attempt>` artifact contains the local
+build log, installed-check log, scoped cleanup log and `receipt.json`. The
+receipt binds repository/workflow/source/ref/event SHA, run/attempt, native
+machine, actual platform, new local image ID, pinned base, full manifest SHA256,
+canonical eleven-entry runtime payload SHA256 and the verified file entries.
+It explicitly marks native flow/migration/serializer and publication NOT_RUN.
+For `both`, acceptance requires two successful receipts at the same approved
+source/run/attempt with the same manifest/runtime payload hashes and the two
+distinct actual platforms. One artifact or a generic green check is insufficient.
+No registry index digest is manufactured from a local image ID or old base.
+
+Signals, build/inspection/hash failures and branch drift stop A. The build-step
+trap removes only its run/attempt/platform-named container and qualification
+image, preserves a failing exit status, and fails a successful check if image
+cleanup fails. A failure produces logs without a success receipt. The hosted
+runner owns remaining base/cache cleanup at VM disposal; no global prune or
+other worker lifecycle change occurs. Artifacts upload on success/failure,
+missing files are errors, and retention is 14 days. Default/full verification,
+B image-native DB/migration/serializer evidence, PG-version qualification,
+publication and real Google callback/SAML/OIDC acceptance retain their separate
+required gates and approvals.
