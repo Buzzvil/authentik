@@ -18487,6 +18487,12 @@
                 "user_path_template": {
                     "type": "string",
                     "title": "User path template"
+                },
+                "email_verification_attribute": {
+                    "type": "string",
+                    "maxLength": 150,
+                    "title": "Email verification attribute",
+                    "description": "When set, only update this top-level email verification attribute on an existing active user whose identity and email still match the pending user. Requires Never create users and no group assignment."
                 }
             },
             "required": []

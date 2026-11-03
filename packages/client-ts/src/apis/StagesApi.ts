@@ -1523,6 +1523,7 @@ export interface StagesUserWriteDestroyRequest {
 export interface StagesUserWriteListRequest {
     createUsersAsInactive?: boolean;
     createUsersGroup?: string;
+    emailVerificationAttribute?: string;
     name?: string;
     ordering?: string;
     page?: number;
@@ -16331,6 +16332,11 @@ export class StagesApi extends runtime.BaseAPI {
 
         if (requestParameters["createUsersGroup"] != null) {
             queryParameters["create_users_group"] = requestParameters["createUsersGroup"];
+        }
+
+        if (requestParameters["emailVerificationAttribute"] != null) {
+            queryParameters["email_verification_attribute"] =
+                requestParameters["emailVerificationAttribute"];
         }
 
         if (requestParameters["name"] != null) {
