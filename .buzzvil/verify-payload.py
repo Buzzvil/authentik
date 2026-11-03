@@ -3,8 +3,11 @@
 import argparse
 import hashlib
 import json
+import logging
 import re
 from pathlib import Path
+
+LOGGER = logging.getLogger(__name__)
 
 
 def instructions(path):
@@ -44,7 +47,9 @@ def verify(args):
         if [line for line in recipe if line.startswith("COPY ")] != expected:
             raise ValueError("Dockerfile COPY list differs from the exact runtime manifest")
         test_recipe = instructions(root / ".buzzvil/Dockerfile.test")
-        expected_cmd = "CMD " + json.dumps(["test", *manifest["regression_labels"]])
+        expected_cmd = "CMD " + json.dumps(
+            ["test", *manifest["regression_labels"]], ensure_ascii=False
+        )
         if [line for line in test_recipe if line.startswith("CMD ")] != [expected_cmd]:
             raise ValueError("Regression labels differ from the reviewed manifest")
         for entry in manifest["tests"]:
@@ -61,12 +66,15 @@ def verify(args):
                 raise ValueError(f"Publishing checkout omits {entry['source']}")
         if "platforms: " + ",".join(manifest["platforms"]) not in workflow:
             raise ValueError("Publishing platforms differ from the manifest")
-    print(
-        f"{args.mode}: {len(entries)} exact payload hashes verified; no DB/startup/build executed"
+    LOGGER.info(
+        "BUZZVIL_PAYLOAD_VERIFIED mode=%s files=%d no_db_startup_or_build=true",
+        args.mode,
+        len(entries),
     )
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("source", "installed"))
     parser.add_argument("--manifest", type=Path, default=Path(__file__).with_name("payload.json"))

@@ -104,11 +104,13 @@ runner, and again on the publishing runner), registry/package downloads, one dis
 network, one new PostgreSQL server/container and its native fixture DB, and
 five short-lived application/check containers (plus the PG container). No
 operating endpoint, account, credential, PVC or data volume is needed. The
-existing EXIT trap removes only that run's PG container/network; application
+EXIT trap copies `/tmp/unittest.xml` from the named regression container before
+removing it, then removes that run's PG container/network. Other application
 containers use `--rm`; runner-local images disappear with the hosted runner.
-Junit remains in the short-lived test container under the existing recipe, so
-collecting/exporting it needs a reviewed artifact step before claiming a retained
-image-test report. Any earlier step failure prevents publishing via `needs`.
+The existing CI - Main upload-artifact pin retains only that JUnit file, under
+a source/run/attempt-specific name for 14 days, on success or failure. Missing
+JUnit is an artifact error, never a passing test report. Any earlier step failure
+prevents publishing via `needs`.
 
 Existing-infrastructure alternative: reuse the previously authorized local
 PostgreSQL 18 server and exact `test_authentik_identity_7307` fixture, after its
@@ -134,8 +136,12 @@ Only after a separately approved normal build/publish run may its new GHCR
 index digest and both platform manifest digests be recorded. Confirm the
 published images match the verified payload/OCI source label; a registry tag or
 a successful job alone is insufficient. The test derivative is never published.
-The existing release step remains tag-triggered, and notes name the derived
-image tag. Manual dispatch creates an image without a GitHub Release.
+The release step remains tag-triggered. It preserves existing notes and appends
+the derived image tag, new index digest, source SHA and run/attempt URL; retries
+append their distinct result. Publication jobs for the same ref are serialized
+to avoid losing an appended history entry. Manual dispatch creates an image
+without a GitHub Release. A failed notes update after a push leaves a published
+image with an incomplete release record; that is a failed publication stage.
 
 Mirroring must copy that exact complete index through the reviewed image-mirror
 pipeline to the existing ECR repository, then compare index/platform digests.
@@ -161,3 +167,118 @@ image ignores this new opt-in field and can restore the legacy full-save
 behaviour; it is not a safe P1 fallback by itself. Require a separately reviewed
 fail-closed configuration/flow rollback and exact previous image digest through
 the same normal GitOps/Gitploy path, with acceptance after convergence.
+
+## Bounded execution decision packet (7493; not executed)
+
+The three PR #40 comments were checked against head `52ec5560d`: JSON labels
+and CLI logging can be improved within the standard library; the retry/release
+mapping is a real mismatch. No Flask `jsonify` dependency is appropriate for this
+standalone checker. The quoted organization path rules are reviewer-supplied;
+they are not present in this checkout's AGENTS or a repository CodeRabbit file.
+The changes above are local compatibility/observability fixes, not a claim that
+ASCII JSON output was a vulnerability or that AI review is human approval.
+
+Non-sensitive local observations on 2026-11-03, without a DB connection:
+
+- Host architecture is arm64. PostgreSQL PID 1635 is owned by `luis.hong`, with
+  data directory `/opt/homebrew/var/postgresql@18`, `PG_VERSION=18`, and the
+  postmaster's existing startup options naming version 18.3. `lsof` observes
+  only loopback listeners (`127.0.0.1`/`::1`:5432), no established TCP client
+  at that snapshot. This does not prove the absence of Unix-socket clients,
+  activity between observations, or an exclusive fixture lease.
+- Earlier own native evidence names `test_authentik_identity_7307`. Its current
+  existence, owner/exclusivity and migration state cannot be re-established
+  from the permitted filesystem/process metadata. No PostgreSQL catalog/data
+  files are inspected to infer those facts. Fresh fixture state is UNKNOWN.
+- No Docker/Colima daemon was observed in the bounded process snapshot, and
+  the three usual local sockets (`/var/run/docker.sock`,
+  `~/.docker/run/docker.sock`, `~/.colima/default/docker.sock`) were not observed.
+  This does not rule out another context or a remote engine. Engine availability
+  and container-to-PG routing are NOT_QUALIFIED; no daemon/API/probe was started.
+  `host.docker.internal` is not assumed to reach this loopback-only server.
+
+Separate the required evidence and approve only the next missing stage:
+
+1. **Installed packaging, both architectures.** Native 45+17 at immutable PR #39
+   remains source evidence and is not repeated. Each architecture still needs
+   a real production image built at the approved packaging SHA and a read-only
+   installed eleven-file hash result. The smallest DB-free packet is one
+   production image and one Python-only container per native architecture,
+   pinned-base downloads, and retained hash logs. There is no test derivative,
+   PostgreSQL, custom Docker network, application login or publication in this
+   stage. Use the following command shape once per qualified native engine:
+
+   ```sh
+   docker build --pull --platform "$APPROVED_PLATFORM" -f .buzzvil/Dockerfile \
+     --build-arg SOURCE_REVISION="$APPROVED_SOURCE_SHA" \
+     --build-arg IMAGE_VERSION=p1-unpublished -t "$QUALIFICATION_IMAGE" .
+   docker run --rm --platform "$APPROVED_PLATFORM" --entrypoint python \
+     -v "$PWD/.buzzvil:/payload:ro" "$QUALIFICATION_IMAGE" \
+     /payload/verify-payload.py installed --manifest /payload/payload.json
+   ```
+
+   Native `ubuntu-24.04` and `ubuntu-24.04-arm` hosted jobs are a concrete
+   alternative to the current single x64 runner plus privileged QEMU helper.
+   These create two ephemeral GitHub VMs; they are not reuse of an already
+   running local engine and need execution approval/organization availability.
+   They avoid binfmt privilege. GitHub documents these labels for private
+   repositories ([runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+   [private arm64 availability](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)).
+   This is a proposed future recipe, not a silent runner/workflow switch here.
+   A second option is the current one hosted verify VM plus one privileged
+   QEMU setup; its larger privilege scope must be decided explicitly.
+
+2. **Image-native flow, migration and serializer.** Eleven matching files do
+   not prove Django startup/schema/flow behaviour. The existing local PG18
+   option needs a fresh owner receipt for that exact existing idle fixture,
+   an already qualified engine route using existing access, and an exclusive
+   test window. Hosted runners cannot reach this machine's loopback address.
+   Do not add a tunnel/listener, change pg_hba/access, create a missing fixture
+   or install/start a local engine to make reuse work. `--keepdb` alone can
+   create a missing DB, so it is not an existence guard. Reuse remains blocked
+   until these facts exist; prior native evidence cannot authorize new writes.
+
+   Once qualified and separately authorized, one test derivative of the native
+   production image and one test container are sufficient for the P1-specific
+   no-op case plus the ten conditional cases named in the manifest, using the
+   exact existing fixture and `--keepdb`. For example, the test command tail is:
+
+   ```sh
+   test --keepdb \
+     authentik/stages/user_write/tests.py::TestUserWriteStage::test_user_update_no_change \
+     authentik/stages/user_write/test_email_verification.py
+   ```
+
+   Connection host/account remain the qualified existing values; the only
+   allowed test DB name is `test_authentik_identity_7307`. Fixture setup must
+   exercise the installed 0009 migration and serializer persistence, and
+   retained JUnit must identify the source/image/platform/PG version. No
+   production blueprint or stage is activated. This PG18 result would still
+   leave PG17.11 image compatibility unverified. It does not replace the normal
+   full OAuth2/SAML release gate, and no passing native suite is replayed now.
+
+3. **Only if reuse is unavailable or PG17.11 image evidence is required:** the
+   smallest isolated fallback on the native amd64 verification runner adds
+   one new PG17.11 container, its synthetic `authentik` role and disposable
+   base/native test databases, one private Docker network, and one regression
+   container. These are explicitly new test resources. Exact commands and
+   synthetic settings are in the existing regression step of
+   `.github/workflows/build-patched-ecr.yaml`; replacing its test-command tail
+   with step 2 limits a qualification run to P1 while preserving the original
+   full-suite gate for an actual release. Registry/pip downloads are required
+   for the pinned base/test dependencies. No ECR/GHCR push, operating DB,
+   account, PVC or service is changed. This fallback is not proven unavoidable:
+   no broad dev/staging inventory or unauthorized DB discovery was performed.
+
+Stop on unexpected target/version, missing fixture lease, unavailable route,
+missing/failed JUnit, nonmatching installed hash or any test failure. Keep those
+states explicit; do not weaken an assertion to make the packet smaller. Retain
+only synthetic test JUnit/hash logs and exact image/source/PG metadata for 14
+days. Export reports before deleting only the named test containers/network;
+remove only the qualification images on an exclusively owned engine, otherwise
+leave cache cleanup to its owner. Reused PG data/server/account and the existing
+fixture remain intact; allow only normal native test teardown inside the
+reserved fixture, no server restart/drop/recreate. Source rollback is this
+review-follow-up commit only. Operating rollback remains the separate
+fail-closed contract above. None of these execution permissions is supplied by
+this source review packet.
