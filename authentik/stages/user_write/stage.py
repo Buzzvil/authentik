@@ -1,9 +1,12 @@
 """Write stage logic"""
 
 from typing import Any
+from uuid import UUID
 
 from django.contrib.auth import update_session_auth_hash
 from django.db import transaction
+from django.db.models import F, Func, JSONField, Value
+from django.db.models.expressions import CombinedExpression
 from django.db.utils import IntegrityError, InternalError
 from django.http import HttpRequest, HttpResponse
 from django.utils.functional import SimpleLazyObject
@@ -158,6 +161,80 @@ class UserWriteStageView(StageView):
             if connection.source.name not in user.attributes[USER_ATTRIBUTE_SOURCES]:
                 user.attributes[USER_ATTRIBUTE_SOURCES].append(connection.source.name)
 
+    def write_email_verification(self, data: dict) -> HttpResponse:
+        """Conditionally update one proof key, never save the pickled pending user."""
+        stage = self.executor.current_stage
+        pending = self.executor.plan.context.get(PLAN_CONTEXT_PENDING_USER)
+        attribute = stage.email_verification_attribute
+        if not isinstance(data, dict):
+            return self.executor.stage_invalid(_("Email verification update was denied."))
+        payload = {key: value for key, value in data.items() if key != "component"}
+        attributes = payload.get("attributes")
+        if (
+            stage.user_creation_mode != UserCreationMode.NEVER_CREATE
+            or stage.create_users_group is not None
+            or PLAN_CONTEXT_GROUPS in self.executor.plan.context
+            or not isinstance(pending, User)
+            or pending._state.adding
+            or type(pending.pk) is not int
+            or pending.get_deferred_fields() & {"uuid", "is_active", "email"}
+            or not isinstance(pending.uuid, UUID)
+            or pending.is_active is not True
+            or not isinstance(pending.email, str)
+            or not pending.email
+            or set(payload) != {"attributes"}
+            or not isinstance(attributes, dict)
+            or set(attributes) - {attribute}
+        ):
+            return self.executor.stage_invalid(_("Email verification update was denied."))
+
+        # These conditions are checked on the locked, current row, not on a
+        # refresh performed before the write transaction. A deleted/replaced
+        # identity cannot fall back to Model.save() and recreate the account.
+        with transaction.atomic():
+            target = User.objects.filter(
+                pk=pending.pk, uuid=pending.uuid, is_active=True, email=pending.email
+            )
+            current = target.select_for_update().first()
+            if current is None or not isinstance(current.attributes, dict):
+                return self.executor.stage_invalid(_("Email verification update was denied."))
+
+            proof = attributes.get(attribute)
+            trusted = isinstance(proof, str) and proof == current.email
+            changed = (
+                current.attributes.get(attribute) != proof
+                if trusted
+                else attribute in current.attributes
+            )
+            if changed:
+                if trusted:
+                    update = Func(
+                        F("attributes"),
+                        Value([attribute]),
+                        Value(proof, JSONField()),
+                        function="jsonb_set",
+                    )
+                else:
+                    update = CombinedExpression(
+                        F("attributes"), "-", Value(attribute), output_field=JSONField()
+                    )
+                # Transform the current JSONB value in the database. Never
+                # replace the attributes dictionary from either user snapshot.
+                if target.update(attributes=update) != 1:
+                    return self.executor.stage_invalid(_("Email verification update was denied."))
+                current.refresh_from_db(fields=["attributes"])
+            self.executor.plan.context[PLAN_CONTEXT_PENDING_USER] = current
+
+        if changed:
+            user_write.send(
+                sender=self,
+                request=self.request,
+                user=current,
+                data={"attributes": {attribute: proof if trusted else ""}},
+                created=False,
+            )
+        return self.executor.stage_ok()
+
     def dispatch(self, request: HttpRequest) -> HttpResponse:
         """Save data in the current flow to the currently pending user. If no user is pending,
         a new user is created."""
@@ -166,6 +243,8 @@ class UserWriteStageView(StageView):
             self.logger.debug(message)
             return self.executor.stage_invalid(message)
         data = self.executor.plan.context[PLAN_CONTEXT_PROMPT]
+        if self.executor.current_stage.email_verification_attribute:
+            return self.write_email_verification(data)
         user, user_created = self.ensure_user()
         if not user:
             message = _("No user found and can't create new user.")

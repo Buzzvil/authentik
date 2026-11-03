@@ -47,6 +47,16 @@ class UserWriteStage(Stage):
         default="",
         blank=True,
     )
+    email_verification_attribute = models.CharField(
+        max_length=150,
+        default="",
+        blank=True,
+        help_text=_(
+            "When set, only update this top-level email verification attribute on an existing "
+            "active user whose identity and email still match the pending user. "
+            "Requires Never create users and no group assignment."
+        ),
+    )
 
     @property
     def serializer(self) -> type[BaseSerializer]:
