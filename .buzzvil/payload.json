@@ -1,0 +1,124 @@
+{
+  "schema": "buzzvil.authentik-payload/v1",
+  "base_image": "ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5",
+  "overlay_revision": "415a4e7a541910221a6a7c6db657463915906a27",
+  "p1_revision": "e3fa5f3db877be91d0adb3ad1b83c3555c7bf5e8",
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "runtime": [
+    {
+      "source": "authentik/providers/saml/processors/authn_request_parser.py",
+      "destination": "/authentik/providers/saml/processors/authn_request_parser.py",
+      "sha256": "4e4c39e3d6b93b249ec577d697c5a40b79a932cd4126ba2897b2a5a773f941f0"
+    },
+    {
+      "source": "authentik/providers/saml/views/sso.py",
+      "destination": "/authentik/providers/saml/views/sso.py",
+      "sha256": "22162ecfee09c3737ffec86ada4437e834cc4c8f0561ba50509add1e54b25b23"
+    },
+    {
+      "source": "authentik/providers/oauth2/utils.py",
+      "destination": "/authentik/providers/oauth2/utils.py",
+      "sha256": "d33a60ea526e991e9da391cac213412f528e46945bd7ca4b111660ed5ff730cb"
+    },
+    {
+      "source": "authentik/providers/oauth2/views/token.py",
+      "destination": "/authentik/providers/oauth2/views/token.py",
+      "sha256": "4bda3c4a2b48f09ab0ea4bb064ace6fc7987ad62780bc0086d27cca1a20693bb"
+    },
+    {
+      "source": "authentik/providers/oauth2/views/userinfo.py",
+      "destination": "/authentik/providers/oauth2/views/userinfo.py",
+      "sha256": "26d5b8aaa0b27199227cc831317d6439f38a93a307349f0310074a1ee357dc39"
+    },
+    {
+      "source": "authentik/providers/oauth2/views/provider.py",
+      "destination": "/authentik/providers/oauth2/views/provider.py",
+      "sha256": "1114295fc9cebafbb9fb1a1f8e2d8ec32295507c574f19fc76699d2faa6e4db5"
+    },
+    {
+      "source": "authentik/stages/user_write/stage.py",
+      "destination": "/authentik/stages/user_write/stage.py",
+      "sha256": "604d837f709a67dab288c1dcd38665ab7f62a39b6d3515f4bdc22cf869b9cf04"
+    },
+    {
+      "source": "authentik/stages/user_write/models.py",
+      "destination": "/authentik/stages/user_write/models.py",
+      "sha256": "b13f8696bdf4262012fe583b9122ff80d63e705b391d62eea502d7958a9eafbe"
+    },
+    {
+      "source": "authentik/stages/user_write/api.py",
+      "destination": "/authentik/stages/user_write/api.py",
+      "sha256": "6e68ff10f229879b0984eaa0a059da3b3f8fb344f55fefb79dd841aca59e7047"
+    },
+    {
+      "source": "authentik/stages/user_write/migrations/0009_userwritestage_email_verification_attribute.py",
+      "destination": "/authentik/stages/user_write/migrations/0009_userwritestage_email_verification_attribute.py",
+      "sha256": "dc17e4316525dcb0db387e8f5532fc28803ba5935acc8d9351b8ee57120295df"
+    },
+    {
+      "source": "blueprints/schema.json",
+      "destination": "/blueprints/schema.json",
+      "sha256": "5b800de250f321c8e5f30b2d6f42c53349af636c30179eeab52648664aa4209f"
+    }
+  ],
+  "source_contract": [
+    {
+      "source": "schema.yml",
+      "sha256": "7e41ba4e502fddb7e19366b856a672ceae74b7a66328f82b7f340dddef2339a5"
+    },
+    {
+      "source": "packages/client-ts/src/apis/StagesApi.ts",
+      "sha256": "143a214a2ef3e89f2d6ecc0a9fd7cd2ad6bb69207ccac1aa5e447ad5422630cc"
+    },
+    {
+      "source": "packages/client-ts/src/models/PatchedUserWriteStageRequest.ts",
+      "sha256": "3c5a66416de1b07af4febf17b7f17be4c7c0e5f0f0804f45b0461327a8c749cf"
+    },
+    {
+      "source": "packages/client-ts/src/models/UserWriteStage.ts",
+      "sha256": "38df7f3b718e8a6be2a979c0aabe11a0fbebd4ec9076b27dc9f828090d2dc714"
+    },
+    {
+      "source": "packages/client-ts/src/models/UserWriteStageRequest.ts",
+      "sha256": "e00cd996667bfd15e6d10ab9897048daaa195f551b99a60dccf9a9be1c57c49e"
+    }
+  ],
+  "tests": [
+    {
+      "source": "authentik/stages/user_write/tests.py",
+      "destination": "/authentik/stages/user_write/tests.py",
+      "sha256": "e00ac6b76a1ecd70ef0c444b0f7bd04c23833dd5a9069c0c72cddba666583884"
+    },
+    {
+      "source": "authentik/stages/user_write/test_email_verification.py",
+      "destination": "/authentik/stages/user_write/test_email_verification.py",
+      "sha256": "72f5f9d3b9d30c37bfb37175a2bec7b7147dd990e7957e9fba44e1e07b92dd26"
+    }
+  ],
+  "inherited_test_support": [
+    {
+      "source": "authentik/core/tests/utils.py",
+      "destination": "/authentik/core/tests/utils.py",
+      "sha256": "e8ecb7c2b052fc1026a7a890f7e7a5241c6180c4ebaa8441ed6eafa609f76eb0"
+    },
+    {
+      "source": "authentik/flows/tests/__init__.py",
+      "destination": "/authentik/flows/tests/__init__.py",
+      "sha256": "d58d30316d259e5ef8606b2d75bc1e4e8c24f6ab5ab76e77bc5279ec1422e54f"
+    },
+    {
+      "source": "authentik/flows/tests/test_executor.py",
+      "destination": "/authentik/flows/tests/test_executor.py",
+      "sha256": "dbeefc153c42bd692bb48501fb2ee98644a4417fe5b020c8fe5b5b495f175401"
+    }
+  ],
+  "regression_labels": [
+    "authentik/providers/oauth2/tests",
+    "authentik/providers/saml/tests",
+    "authentik/stages/user_write/tests.py::TestUserWriteStage::test_user_update_no_change",
+    "authentik/stages/user_write/test_email_verification.py"
+  ]
+}

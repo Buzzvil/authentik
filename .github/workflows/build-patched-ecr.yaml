@@ -5,13 +5,13 @@ name: build-patched-ghcr
 #
 # 트리거: '<authentik version>-cors-relaystate' 형태의 태그 push
 #         (예: 2026.8.5-cors-relaystate).
-#         태그명 = 이미지 태그 = release 태그 → 빌드와 release 가 항상 한 쌍으로 생성된다.
+#         release 태그는 유지하고, P1 이미지는 source SHA/run/attempt를 붙인 새 태그를 쓴다.
 #         (git 태그명이 'relaystate' 인 것은 최초 SAML 패치 시절의 관례일 뿐, 이미지에는
 #          Dockerfile 이 COPY 하는 모든 포크 패치가 포함된다.)
 #
 # 새 authentik 버전 릴리스 절차:
 #   1) 새 브랜치(buzzvil/*-<ver>)에서 .buzzvil/Dockerfile 의 FROM 을 그 버전으로 바꾸고
-#      포크 패치(SAML 2파일 + oauth2 CORS 4파일)를 재적용, sparse-checkout 목록도 맞춘다.
+#      포크 패치와 .buzzvil/payload.json, sparse-checkout 목록도 맞춘다.
 #   2) 그 커밋에 태그 '<ver>-cors-relaystate' 를 push
 #      → 이 워크플로우가 이미지 빌드 + release 생성.
 #   3) ops(buzz-k8s-resources) 의 global.image tag 를 갱신하고 로그인/CORS 재검증.
@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "이미지 태그 (예: 2026.8.5-cors-relaystate). 이미지만 rebuild (release 미생성)."
+        description: "Base tag: 2026.8.5-cors-relaystate. P1 appends source SHA/run/attempt; existing tags are not overwritten."
         required: true
 
 permissions:
@@ -42,76 +42,47 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build isolated regression image
-        run: |
-          docker build --pull -f .buzzvil/Dockerfile -t authentik-buzzvil:2026.8.5-test .
-          docker build -f .buzzvil/Dockerfile.test -t authentik-buzzvil:2026.8.5-regression .
-
-      - name: Verify CA stores and installed tools
-        run: |
-          docker run --rm -i --entrypoint python authentik-buzzvil:2026.8.5-test - <<'PY'
-          import importlib.metadata
-          import ssl
-          import subprocess
-          import certifi
-
-          assert importlib.metadata.version("certifi") == "2026.10.19"
-          assert subprocess.check_output(["uv", "--version"], text=True).split()[:2] == ["uv", "0.13.4"]
-          ca_version = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "ca-certificates"], text=True)
-          subprocess.run(["dpkg", "--compare-versions", ca_version, "ge", "20250419+deb13u1"], check=True)
-          blocked = {"emSign ECC Root CA - G3", "emSign Root TLS CA - G3", "AAA Certificate Services"}
-          for label, context in {"OS": ssl.create_default_context(), "certifi": ssl.create_default_context(cafile=certifi.where())}.items():
-              roots = context.get_ca_certs()
-              assert roots, label + ": empty trust store"
-              names = {value for cert in roots for rdn in cert["subject"] for key, value in rdn if key == "commonName"}
-              assert not names & blocked, label + ": compromised CA remains trusted"
-              print(label + ": patched CA store verified")
-          print("ca-certificates=" + ca_version)
-          PY
-
-      - name: Run OAuth2 and SAML regression suites
-        env:
-          TEST_NETWORK: authentik-test-${{ github.run_id }}-${{ github.run_attempt }}
-          TEST_DATABASE: authentik-postgres-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          trap 'docker rm -f "$TEST_DATABASE" >/dev/null 2>&1 || true; docker network rm "$TEST_NETWORK" >/dev/null 2>&1 || true' EXIT
-          docker network create "$TEST_NETWORK"
-          docker run -d --name "$TEST_DATABASE" --network "$TEST_NETWORK" --network-alias postgres \
-            -e POSTGRES_DB=authentik -e POSTGRES_USER=authentik -e POSTGRES_PASSWORD=ci-only-test-password \
-            postgres:17.11-bookworm
-          for attempt in $(seq 1 30); do
-            if docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik; then break; fi
-            sleep 2
-          done
-          docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik
-          docker run --rm --network "$TEST_NETWORK" \
-            -e AUTHENTIK_POSTGRESQL__HOST=postgres \
-            -e AUTHENTIK_POSTGRESQL__NAME=authentik \
-            -e AUTHENTIK_POSTGRESQL__USER=authentik \
-            -e AUTHENTIK_POSTGRESQL__PASSWORD=ci-only-test-password \
-            -e AUTHENTIK_SECRET_KEY=ci-only-synthetic-key \
-            -e PYTEST_ADDOPTS='--junitxml=/tmp/unittest.xml -o cache_dir=/tmp/pytest-cache' \
-            authentik-buzzvil:2026.8.5-regression
+      - name: Verify payload source
+        run: python3 .buzzvil/verify-payload.py source
 
   build:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    concurrency:
+      group: patched-image-publication-${{ github.ref }}
+      cancel-in-progress: false
     env:
-      IMAGE_TAG: ${{ github.event.inputs.image_tag || github.ref_name }}
+      BASE_IMAGE_TAG: ${{ github.event.inputs.image_tag || github.ref_name }}
+      IMAGE_TAG: ${{ format('{0}-p1-{1}-{2}-{3}', github.event.inputs.image_tag || github.ref_name, github.sha, github.run_id, github.run_attempt) }}
     steps:
+      - name: Require the matching upstream version
+        run: |
+          test "$BASE_IMAGE_TAG" = 2026.8.5-cors-relaystate
+
       - name: Checkout (patch files only)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           sparse-checkout: |
             .buzzvil
+            .github/workflows/build-patched-ecr.yaml
             authentik/providers/saml/processors/authn_request_parser.py
             authentik/providers/saml/views/sso.py
             authentik/providers/oauth2/utils.py
             authentik/providers/oauth2/views/token.py
             authentik/providers/oauth2/views/userinfo.py
             authentik/providers/oauth2/views/provider.py
+            authentik/stages/user_write
+            blueprints/schema.json
+            schema.yml
+            packages/client-ts/src/apis/StagesApi.ts
+            packages/client-ts/src/models/PatchedUserWriteStageRequest.ts
+            packages/client-ts/src/models/UserWriteStage.ts
+            packages/client-ts/src/models/UserWriteStageRequest.ts
           sparse-checkout-cone-mode: false
+
+      - name: Verify publishing payload source
+        run: python3 .buzzvil/verify-payload.py source
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
@@ -127,6 +98,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push
+        id: publish
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6
         with:
           context: .
@@ -135,24 +107,33 @@ jobs:
           push: true
           build-args: |
             SOURCE_REVISION=${{ github.sha }}
+            IMAGE_VERSION=${{ env.IMAGE_TAG }}
           tags: ghcr.io/buzzvil/authentik:${{ env.IMAGE_TAG }}
 
-      - name: Create GitHub Release
+      - name: Create or update GitHub Release image history
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ steps.publish.outputs.digest }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-cors-relaystate$ ]]; then
             echo "unexpected release tag: $RELEASE_TAG" >&2
             exit 1
           fi
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release for $RELEASE_TAG already exists — skipping"
+          notes_file="$RUNNER_TEMP/patched-release-notes.md"
+          history_entry="$RUNNER_TEMP/patched-release-entry.md"
+          printf '\n\n### P1 image run %s attempt %s\n\nImage: `%s`\n\nIndex: `%s`\n\nSource: `%s`\n\nRun: %s/%s/actions/runs/%s/attempts/%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "ghcr.io/buzzvil/authentik:$IMAGE_TAG" \
+            "$IMAGE_DIGEST" "$GITHUB_SHA" "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$history_entry"
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > "$notes_file"; then
+            cat "$history_entry" >> "$notes_file"
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"
           else
             gh release create "$RELEASE_TAG" \
               --repo "$GITHUB_REPOSITORY" \
-              --title "$RELEASE_TAG — Buzzvil patched authentik (SAML RelayState + OAuth2 CORS regex)" \
-              --notes "패치 이미지: \`ghcr.io/buzzvil/authentik:$RELEASE_TAG\` (multi-arch amd64/arm64, public). 오버레이 패치 목록·빌드·제거 조건은 .buzzvil/Dockerfile 및 저장소 README 참고." \
+              --title "$RELEASE_TAG — Buzzvil patched authentik (RelayState, CORS, conditional UserWrite)" \
+              --notes-file "$history_entry" \
               --verify-tag
           fi

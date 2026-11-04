@@ -112,7 +112,7 @@ make lint-catalogs     # pnpm catalog pins in sync across the root/web/website w
 
 CI mirrors these as `ci-lint-*` / `ci-test` targets. Run the matching `make lint` / `make test` (plus `make web` / `make docs` for those subtrees) before pushing — CI runs the same checks.
 
-Buzzvil release overlays are documented in `.buzzvil/README.md`. The patched-image workflow verifies the final image's CA stores and runs the OAuth2/SAML suites with an isolated test PostgreSQL before publishing. Its `VULN-688/**` branch trigger verifies without publishing.
+Buzzvil release overlays are documented in `.buzzvil/README.md`. The patched-image workflow verifies source before publishing. Its `VULN-688/**` branch trigger verifies source without publishing. Use the README's local-only commands for native installed-file qualification and the isolated CA, OAuth2/SAML and UserWrite regression checks.
 
 ## API schema & clients
 
