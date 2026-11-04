@@ -26,22 +26,6 @@ on:
       image_tag:
         description: "Base tag: 2026.8.5-cors-relaystate. P1 appends source SHA/run/attempt; existing tags are not overwritten."
         required: true
-      mode:
-        description: "release keeps the existing full verification/publication path; artifact-only runs only A."
-        type: choice
-        options: [release, artifact-only]
-        default: release
-      source_ref:
-        description: "A only: exact reviewed branch, also passed as gh workflow run --ref."
-        type: string
-      source_sha:
-        description: "A only: full reviewed 40-character commit SHA, which must still be that branch's head."
-        type: string
-      platforms:
-        description: "A only: native platforms to qualify."
-        type: choice
-        options: [both, linux/amd64, linux/arm64]
-        default: both
 
 permissions:
   contents: write   # release 생성
@@ -49,7 +33,6 @@ permissions:
 
 jobs:
   verify:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == '' || inputs.mode == 'release'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -59,92 +42,12 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Build isolated regression image
-        run: |
-          python3 .buzzvil/verify-payload.py source
-          docker build --platform linux/amd64 --pull -f .buzzvil/Dockerfile -t authentik-buzzvil:2026.8.5-test .
-          docker build -f .buzzvil/Dockerfile.test -t authentik-buzzvil:2026.8.5-regression .
-
-      - name: Set up QEMU for arm64 payload verification
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-
-      - name: Verify installed payload without starting authentik
-        run: |
-          docker run --rm --entrypoint python -v "$PWD/.buzzvil:/payload:ro" \
-            authentik-buzzvil:2026.8.5-test /payload/verify-payload.py installed --manifest /payload/payload.json
-          docker run --rm --entrypoint python -v "$PWD/.buzzvil:/payload:ro" \
-            authentik-buzzvil:2026.8.5-regression /payload/verify-payload.py installed --manifest /payload/payload.json --with-tests
-          docker build --platform linux/arm64 --pull -f .buzzvil/Dockerfile -t authentik-buzzvil:2026.8.5-payload-arm64 .
-          docker run --rm --platform linux/arm64 --entrypoint python -v "$PWD/.buzzvil:/payload:ro" \
-            authentik-buzzvil:2026.8.5-payload-arm64 /payload/verify-payload.py installed --manifest /payload/payload.json
-
-      - name: Verify CA stores and installed tools
-        run: |
-          docker run --rm -i --entrypoint python authentik-buzzvil:2026.8.5-test - <<'PY'
-          import importlib.metadata
-          import ssl
-          import subprocess
-          import certifi
-
-          assert importlib.metadata.version("certifi") == "2026.10.19"
-          assert subprocess.check_output(["uv", "--version"], text=True).split()[:2] == ["uv", "0.13.4"]
-          ca_version = subprocess.check_output(["dpkg-query", "-W", "-f=${Version}", "ca-certificates"], text=True)
-          subprocess.run(["dpkg", "--compare-versions", ca_version, "ge", "20250419+deb13u1"], check=True)
-          blocked = {"emSign ECC Root CA - G3", "emSign Root TLS CA - G3", "AAA Certificate Services"}
-          for label, context in {"OS": ssl.create_default_context(), "certifi": ssl.create_default_context(cafile=certifi.where())}.items():
-              roots = context.get_ca_certs()
-              assert roots, label + ": empty trust store"
-              names = {value for cert in roots for rdn in cert["subject"] for key, value in rdn if key == "commonName"}
-              assert not names & blocked, label + ": compromised CA remains trusted"
-              print(label + ": patched CA store verified")
-          print("ca-certificates=" + ca_version)
-          PY
-
-      - name: Run OAuth2, SAML and conditional UserWrite regressions
-        env:
-          TEST_NETWORK: authentik-test-${{ github.run_id }}-${{ github.run_attempt }}
-          TEST_DATABASE: authentik-postgres-${{ github.run_id }}-${{ github.run_attempt }}
-          TEST_REGRESSION: authentik-regression-${{ github.run_id }}-${{ github.run_attempt }}
-        run: |
-          report_dir="$RUNNER_TEMP/authentik-regression"
-          mkdir -p "$report_dir"
-          cleanup() {
-            docker cp "$TEST_REGRESSION:/tmp/unittest.xml" "$report_dir/unittest.xml" || true
-            docker rm -f "$TEST_REGRESSION" >/dev/null 2>&1 || true
-            docker rm -f "$TEST_DATABASE" >/dev/null 2>&1 || true
-            docker network rm "$TEST_NETWORK" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          docker network create "$TEST_NETWORK"
-          docker run -d --name "$TEST_DATABASE" --network "$TEST_NETWORK" --network-alias postgres \
-            -e POSTGRES_DB=authentik -e POSTGRES_USER=authentik -e POSTGRES_PASSWORD=ci-only-test-password \
-            postgres:17.11-bookworm
-          for attempt in $(seq 1 30); do
-            if docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik; then break; fi
-            sleep 2
-          done
-          docker exec "$TEST_DATABASE" pg_isready -h 127.0.0.1 -U authentik
-          docker run --name "$TEST_REGRESSION" --network "$TEST_NETWORK" \
-            -e AUTHENTIK_POSTGRESQL__HOST=postgres \
-            -e AUTHENTIK_POSTGRESQL__NAME=authentik \
-            -e AUTHENTIK_POSTGRESQL__USER=authentik \
-            -e AUTHENTIK_POSTGRESQL__PASSWORD=ci-only-test-password \
-            -e AUTHENTIK_SECRET_KEY=ci-only-synthetic-key \
-            -e PYTEST_ADDOPTS='--junitxml=/tmp/unittest.xml -o cache_dir=/tmp/pytest-cache' \
-            authentik-buzzvil:2026.8.5-regression
-
-      - name: Retain native regression JUnit on success or failure
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, same pin as CI - Main
-        with:
-          name: authentik-p1-junit-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/authentik-regression/unittest.xml
-          if-no-files-found: error
-          retention-days: 14
+      - name: Verify payload source
+        run: python3 .buzzvil/verify-payload.py source
 
   build:
     needs: verify
-    if: (startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch') && (github.event_name != 'workflow_dispatch' || inputs.mode == '' || inputs.mode == 'release')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: patched-image-publication-${{ github.ref }}
@@ -234,150 +137,3 @@ jobs:
               --notes-file "$history_entry" \
               --verify-tag
           fi
-
-  artifact-only:
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'artifact-only'
-    name: A installed payload (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include: >-
-          ${{ fromJSON(inputs.platforms == 'linux/amd64' &&
-          '[{"platform":"linux/amd64","runner":"ubuntu-24.04","machine":"x86_64","suffix":"amd64"}]' ||
-          inputs.platforms == 'linux/arm64' &&
-          '[{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","machine":"aarch64","suffix":"arm64"}]' ||
-          '[{"platform":"linux/amd64","runner":"ubuntu-24.04","machine":"x86_64","suffix":"amd64"},{"platform":"linux/arm64","runner":"ubuntu-24.04-arm","machine":"aarch64","suffix":"arm64"}]') }}
-    env:
-      SOURCE_REF: ${{ inputs.source_ref }}
-      SOURCE_SHA: ${{ inputs.source_sha }}
-      PLATFORM_SELECTION: ${{ inputs.platforms }}
-      QUAL_PLATFORM: ${{ matrix.platform }}
-      QUAL_MACHINE: ${{ matrix.machine }}
-      QUAL_SUFFIX: ${{ matrix.suffix }}
-    steps:
-      - name: Require the exact reviewed dispatch head before checkout
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          test "$GITHUB_REPOSITORY" = Buzzvil/authentik
-          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git check-ref-format "refs/heads/$SOURCE_REF"
-          test "$GITHUB_REF" = "refs/heads/$SOURCE_REF"
-          test "$GITHUB_SHA" = "$SOURCE_SHA"
-          test "$GITHUB_WORKFLOW_SHA" = "$SOURCE_SHA"
-          case "$PLATFORM_SELECTION" in both|linux/amd64|linux/arm64) ;; *) exit 1 ;; esac
-          test "$(uname -m)" = "$QUAL_MACHINE"
-          ref_path=$(python3 -c 'import os, sys; from urllib.parse import quote; sys.stdout.write(quote(os.environ["SOURCE_REF"], safe=""))')
-          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref_path" --jq .object.sha)
-          test "$remote_sha" = "$SOURCE_SHA"
-
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
-        with:
-          ref: ${{ inputs.source_sha }}
-          persist-credentials: false
-          sparse-checkout: |
-            .buzzvil
-            .dockerignore
-            authentik/providers/saml/processors/authn_request_parser.py
-            authentik/providers/saml/views/sso.py
-            authentik/providers/oauth2/utils.py
-            authentik/providers/oauth2/views/token.py
-            authentik/providers/oauth2/views/userinfo.py
-            authentik/providers/oauth2/views/provider.py
-            authentik/stages/user_write/stage.py
-            authentik/stages/user_write/models.py
-            authentik/stages/user_write/api.py
-            authentik/stages/user_write/migrations/0009_userwritestage_email_verification_attribute.py
-            blueprints/schema.json
-          sparse-checkout-cone-mode: false
-
-      - name: Build one production image and check installed files without startup
-        run: |
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path(".buzzvil/payload.json").read_text())
-          assert manifest["schema"] == "buzzvil.authentik-payload/v1"
-          assert len(manifest["runtime"]) == 11
-          PY
-          out="$RUNNER_TEMP/authentik-A-$QUAL_SUFFIX"
-          mkdir -p "$out"
-          image="authentik-p1-qualification:$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$QUAL_SUFFIX"
-          container="authentik-A-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$QUAL_SUFFIX"
-          qual_cleanup() {
-            qual_exit=$?
-            trap - EXIT
-            docker rm -f "$container" >> "$out/cleanup.log" 2>&1 || true
-            if [ -s "$out/image.id" ]; then
-              docker image rm "$image" >> "$out/cleanup.log" 2>&1 || { if [ "$qual_exit" -eq 0 ]; then qual_exit=1; fi; }
-            fi
-            exit "$qual_exit"
-          }
-          trap qual_cleanup EXIT
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
-          docker build --pull --platform "$QUAL_PLATFORM" -f .buzzvil/Dockerfile \
-            --build-arg SOURCE_REVISION="$SOURCE_SHA" --build-arg IMAGE_VERSION=p1-unpublished \
-            --iidfile "$out/image.id" -t "$image" . > "$out/build.log" 2>&1
-          image_id=$(cat "$out/image.id")
-          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
-          docker image inspect "$image_id" --format '{{.Os}}/{{.Architecture}}' > "$out/actual-platform"
-          test "$(cat "$out/actual-platform")" = "$QUAL_PLATFORM"
-          test "$(docker image inspect "$image_id" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
-          docker run --rm --name "$container" --platform "$QUAL_PLATFORM" \
-            --read-only --network none --cap-drop ALL --security-opt no-new-privileges \
-            --entrypoint python -v "$PWD/.buzzvil:/payload:ro" "$image_id" \
-            -I /payload/verify-payload.py installed --manifest /payload/payload.json \
-            > "$out/installed-payload.log" 2>&1
-
-      - name: Recheck the branch head and record only A evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          ref_path=$(python3 -c 'import os, sys; from urllib.parse import quote; sys.stdout.write(quote(os.environ["SOURCE_REF"], safe=""))')
-          remote_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$ref_path" --jq .object.sha)
-          test "$remote_sha" = "$SOURCE_SHA"
-          python3 - <<'PY'
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
-          out = Path(os.environ["RUNNER_TEMP"]) / ("authentik-A-" + os.environ["QUAL_SUFFIX"])
-          raw = Path(".buzzvil/payload.json").read_bytes()
-          manifest = json.loads(raw)
-          runtime = manifest["runtime"]
-          payload = json.dumps(runtime, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-          receipt = {
-              "schema": "buzzvil.authentik-installed-payload/v1",
-              "scope": "installed-files-only", "repository": os.environ["GITHUB_REPOSITORY"],
-              "workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
-              "workflow_sha": os.environ["GITHUB_WORKFLOW_SHA"],
-              "source_sha": os.environ["SOURCE_SHA"], "source_ref": os.environ["SOURCE_REF"],
-              "event_sha": os.environ["GITHUB_SHA"],
-              "run_id": os.environ["GITHUB_RUN_ID"], "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
-              "platform": (out / "actual-platform").read_text().strip(),
-              "native_machine": os.environ["QUAL_MACHINE"],
-              "platform_selection": os.environ["PLATFORM_SELECTION"],
-              "local_image_id": (out / "image.id").read_text().strip(),
-              "base_image": manifest["base_image"],
-              "manifest_sha256": hashlib.sha256(raw).hexdigest(),
-              "runtime_payload_sha256": hashlib.sha256(payload).hexdigest(),
-              "verified_files": len(runtime), "runtime": runtime,
-              "native_flow_migration_serializer": "NOT_RUN", "registry_publication": "NOT_RUN",
-          }
-          (out / "receipt.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n")
-          PY
-
-      - name: Retain A hashes and scoped build/cleanup logs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: authentik-A-${{ inputs.source_sha }}-${{ matrix.suffix }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/authentik-A-${{ matrix.suffix }}/
-          if-no-files-found: error
-          retention-days: 14

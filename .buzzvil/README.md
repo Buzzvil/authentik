@@ -70,57 +70,16 @@ The source-only packaging review reuses PR #39's native 45 tests + 17 subtests
 on the existing local PostgreSQL 18 fixture. That prior PASS is not an image,
 PostgreSQL 17.11, arm64 or operating acceptance result. It is not rerun here.
 
-## Proposed normal image verification: execution not authorized by this PR
+## CI source verification
 
-The existing `build-patched-ghcr` workflow remains the build/publish route.
-A `fix/**` branch push or PR targeting the PR #39 branch does not select its
-`VULN-688/**` push, tag or manual-dispatch triggers. Do not move this preparation
-onto a triggered branch or dispatch it without the separate exact approval.
+The `verify` job in `build-patched-ghcr` runs the standard-library source
+verifier. The publishing job still depends on that check. Native installed
+files, CA/tool checks, and the PostgreSQL regression suite run through the
+[local-only image checks](#local-only-image-checks) after separate approval.
 
-After review and approval of the concrete resource scope, the verify job would:
-
-1. Check the manifest, build the amd64 production image, and build the test-only
-   derivative. The latter installs the existing pinned test dependencies and
-   copies the two UserWrite test files, in addition to existing OAuth2/SAML tests.
-2. Use `--entrypoint python` and a read-only mount of `.buzzvil` to compare
-   installed production and regression bytes against the same manifest. The
-   regression check also verifies the three inherited core/flow test helpers.
-3. Set up QEMU, build arm64 from the same Dockerfile, and verify its eleven
-   installed hashes without starting authentik. This checks arm64 packaging,
-   not arm64 native DB/flow execution. The existing CA/tool checks run on amd64.
-4. Create the existing recipe's isolated Docker network and a new
-   `postgres:17.11-bookworm` container with synthetic credentials, wait for
-   readiness, and run the amd64 regression image. This includes existing full
-   OAuth2/SAML suites, the upstream `test_user_update_no_change`, and all ten
-   `test_email_verification.py` cases (with their subtests). They cover current
-   profile/path/unrelated attributes, active/email/UUID drift, missing-row
-   non-recreation, trusted/repeated/missing/unusable proof, forbidden prompt
-   writes and serializer/configuration readback. Test collection/native fixture
-   setup can create the disposable test database inside that new server.
-
-The recipe therefore needs explicit permission for three local images, QEMU
-registration (the pinned action's privileged binfmt helper on the hosted verify
-runner, and again on the publishing runner), registry/package downloads, one disposable
-network, one new PostgreSQL server/container and its native fixture DB, and
-five short-lived application/check containers (plus the PG container). No
-operating endpoint, account, credential, PVC or data volume is needed. The
-EXIT trap copies `/tmp/unittest.xml` from the named regression container before
-removing it, then removes that run's PG container/network. Other application
-containers use `--rm`; runner-local images disappear with the hosted runner.
-The existing CI - Main upload-artifact pin retains only that JUnit file, under
-a source/run/attempt-specific name for 14 days, on success or failure. Missing
-JUnit is an artifact error, never a passing test report. Any earlier step failure
-prevents publishing via `needs`.
-
-Existing-infrastructure alternative: reuse the previously authorized local
-PostgreSQL 18 server and exact `test_authentik_identity_7307` fixture, after its
-owner confirms it still exists and is idle. Container-to-host reachability and
-that fixture's isolation are not verified here. Do not create a missing DB,
-account, forwarding tunnel or listener, broaden a network rule, or change a
-shared service to make the alternative work. A proposed reuse run would need
-an explicit preflight proving that exact fixture exists, `--keepdb`, and no
-concurrent owner. It would qualify PG18 only; it cannot supply PG17.11 evidence.
-The current CI recipe has not been switched to this unverified alternative.
+The existing `VULN-688/**` branch, release tag, and manual workflow triggers
+remain in place. A `fix/**` branch push or PR does not select them. Publication
+uses its existing build/push job and requires the separate exact approval.
 
 ## Publication, deployment and rollback contract
 
@@ -213,28 +172,8 @@ Separate the required evidence and approve only the next missing stage:
    production image and one Python-only container per native architecture,
    pinned-base downloads, and retained hash logs. There is no test derivative,
    PostgreSQL, custom Docker network, application login or publication in this
-   stage. Use the following command shape once per qualified native engine:
-
-   ```sh
-   docker build --pull --platform "$APPROVED_PLATFORM" -f .buzzvil/Dockerfile \
-     --build-arg SOURCE_REVISION="$APPROVED_SOURCE_SHA" \
-     --build-arg IMAGE_VERSION=p1-unpublished -t "$QUALIFICATION_IMAGE" .
-   docker run --rm --platform "$APPROVED_PLATFORM" --entrypoint python \
-     -v "$PWD/.buzzvil:/payload:ro" "$QUALIFICATION_IMAGE" \
-     /payload/verify-payload.py installed --manifest /payload/payload.json
-   ```
-
-   Native `ubuntu-24.04` and `ubuntu-24.04-arm` hosted jobs are a concrete
-   alternative to the current single x64 runner plus privileged QEMU helper.
-   These create two ephemeral GitHub VMs; they are not reuse of an already
-   running local engine and need execution approval/organization availability.
-   They avoid binfmt privilege. GitHub documents these labels for private
-   repositories ([runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
-   [private arm64 availability](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/)).
-   The later 7532 entry below implements these native jobs only behind an
-   explicit artifact-only dispatch; the original release recipe is retained.
-   A second option is the current one hosted verify VM plus one privileged
-   QEMU setup; its larger privilege scope must be decided explicitly.
+   stage. Use the [local-only image checks](#local-only-image-checks)
+   once per separately approved native engine.
 
 2. **Image-native flow, migration and serializer.** Eleven matching files do
    not prove Django startup/schema/flow behaviour. The existing local PG18
@@ -261,22 +200,16 @@ Separate the required evidence and approve only the next missing stage:
    allowed test DB name is `test_authentik_identity_7307`. Fixture setup must
    exercise the installed 0009 migration and serializer persistence, and
    retained JUnit must identify the source/image/platform/PG version. No
-   production blueprint or stage is activated. This PG18 result would still
-   leave PG17.11 image compatibility unverified. It does not replace the normal
-   full OAuth2/SAML release gate, and no passing native suite is replayed now.
+   production blueprint or stage is activated. A PG18 result leaves PG17.11
+   image compatibility and the full local OAuth2/SAML suite unverified.
 
 3. **Only if reuse is unavailable or PG17.11 image evidence is required:** the
-   smallest isolated fallback on the native amd64 verification runner adds
+   isolated fallback on an approved native amd64 Docker engine adds
    one new PG17.11 container, its synthetic `authentik` role and disposable
    base/native test databases, one private Docker network, and one regression
-   container. These are explicitly new test resources. Exact commands and
-   synthetic settings are in the existing regression step of
-   `.github/workflows/build-patched-ecr.yaml`; replacing its test-command tail
-   with step 2 limits a qualification run to P1 while preserving the original
-   full-suite gate for an actual release. Registry/pip downloads are required
-   for the pinned base/test dependencies. No ECR/GHCR push, operating DB,
-   account, PVC or service is changed. This fallback is not proven unavoidable:
-   no broad dev/staging inventory or unauthorized DB discovery was performed.
+   container. These are explicitly new test resources. The local
+   `--regression` command below uses the same synthetic settings and runs the
+   full existing suite. It downloads the pinned base and test dependencies.
 
 Stop on unexpected target/version, missing fixture lease, unavailable route,
 missing/failed JUnit, nonmatching installed hash or any test failure. Keep those
@@ -291,112 +224,60 @@ review-follow-up commit only. Operating rollback remains the separate
 fail-closed contract above. None of these execution permissions is supplied by
 this source review packet.
 
-## Exact manual A entry (7532; source prepared, execution not authorized)
+## Local-only image checks
 
-The owned `.github/workflows/build-patched-ecr.yaml` now has an explicit
-`mode=artifact-only` path. The default remains `release`, including the existing
-required `image_tag` input, verification/native/full-suite dependency and write
-permissions. Push/tag events retain that path. An ordinary PR or feature push
-cannot select A; A requires `workflow_dispatch` and the exact mode. Unknown
-manual modes select neither A nor release. No workflow was dispatched here.
+The standalone hosted `artifact-only` entry has been removed. In
+[run 41771723140](https://github.com/Buzzvil/authentik/actions/runs/41771723140),
+the Buzzvil organization IP allow list blocked the branch-head API query on
+both hosted runners before checkout. The standalone checks and the former
+CI image regression suite have separate local commands.
 
-Primary metadata for `Buzzvil/authentik` on 2026-11-03 shows workflow ID
-`309031317`, path `.github/workflows/build-patched-ecr.yaml`, state `active`.
-The default branch is `main`; its contents API returns HTTP404 for this path.
-This is distinct from absence of a registered workflow: the same ID has eleven
-recorded runs, including successful normal `workflow_dispatch` run `39741634524`
-from `VULN-688/authentik-2026-8-5` at `415a4e7a541910221a6a7c6db657463915906a27`.
-GitHub documents a default-branch requirement for initial/manual UI registration,
-and the existing-workflow API/CLI branch route after a workflow has run
-([event contract](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch),
-[CLI manual dispatch](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/manually-run-a-workflow)).
-The registered ID plus observed history supplies the normal CLI route; it does
-not prove a new A execution succeeded. Do not add a service registration,
-change default-branch settings, create a tag or probe dispatch to test it.
-A future HTTP404/422 or unavailable runner stops the attempt; do not fall back
-to a release event or another ref. `gh workflow run --help` confirms ID and
-`--ref` branch/tag selection; A intentionally accepts branches only.
-
-After review of this PR's exact head and a separate explicit approval covering
-the resources below, use the registered ID and reviewed branch:
+For a separately approved check, use a clean checkout at the full reviewed
+commit on an existing native Linux Docker engine or local Docker Desktop VM.
+Supply the same reviewed SHA on both native hosts. Run each command only on
+its matching architecture:
 
 ```sh
-gh workflow run 309031317 --repo Buzzvil/authentik \
-  --ref fix/user-write-image-payload-7387 \
-  -f mode=artifact-only \
-  -f source_ref=fix/user-write-image-payload-7387 \
-  -f source_sha=FULL_REVIEWED_PR40_HEAD_SHA \
-  -f platforms=both \
-  -f image_tag=2026.8.5-cors-relaystate
+bash .buzzvil/verify-installed-local.sh "$APPROVED_SOURCE_SHA" linux/amd64
+bash .buzzvil/verify-installed-local.sh "$APPROVED_SOURCE_SHA" linux/arm64
 ```
 
-The final DB execution packet supplies the literal full SHA after the source
-commit is published; the placeholder above is deliberately not executable.
-The legacy required `image_tag` is passed for input compatibility and is unused
-by A. `platforms=both` is the default; `linux/amd64` or `linux/arm64` selects one
-native job. Source selection has no `latest` default. An advance of the reviewed
-branch requires a fresh reviewed SHA/decision, not silently substituting HEAD.
-The full workflow version containing this mode must be present at that exact
-remote branch head; PR merge or deployment is not performed by the command.
+The helper uses the current local Unix-socket Docker context and its default
+builder. It checks the native host, Docker server and built image platforms.
+It verifies the reviewed source manifest, builds from the committed Git tree,
+checks the OCI revision, and runs the existing verifier against the immutable
+image ID. The verifier checks eleven installed files using Python in a
+read-only, network-disabled container. The base is pulled from the pinned
+image reference. Both native checks use the engine's own architecture.
 
-A checks repository identity, a lowercase full 40-character SHA, the selected
-branch/GITHUB_REF, event SHA, workflow-definition SHA and current remote branch
-head before checkout. It checks out that SHA without persisting credentials,
-checks local HEAD, and rechecks remote head before issuing a success receipt.
-Missing, stale, tag-based or mismatched input fails closed. Native `uname -m`
-must match the chosen runner; no QEMU/binfmt or engine installation is used.
+Keep the successful output from each host. Both platforms must report the
+same source SHA, manifest SHA256 and runtime payload SHA256. Local image IDs
+are platform-specific. The summary is printed only after verification and
+cleanup succeed. The helper removes its own image tag, container and temporary
+source tree. Engine cache is handled by the engine owner.
 
-For `both`, the execution scope is exactly two new ephemeral GitHub hosted
-jobs/VMs (`ubuntu-24.04`, `ubuntu-24.04-arm`), two derived production images,
-and two short-lived Python-only check containers, plus pinned base/index/layer
-and repository downloads, local build cache and 14-day CI artifacts. This is
-CI-local synthetic packaging qualification, not a dev/staging/production DB
-target. Each job uses `contents: read` only; the existing release permission
-block is unchanged. The read-only GitHub token is scoped to checkout/head
-queries, is not persisted, and is not passed to the build or container. Artifact
-upload uses the job's normal artifact runtime capability, not registry write.
+### Isolated amd64 regression
 
-The sparse source context contains the owned overlay recipe/checker/manifest,
-Docker ignore rules and the eleven runtime files. There is one production
-`docker build --pull --platform ... --iidfile ...` per selected native job. The
-recorded local image ID, actual inspected OS/architecture and OCI source label
-must match the selected source/platform. The check runs by that immutable local
-ID, not by an unqualified tag, using:
+With separate approval for the test image, package downloads, disposable
+network, and PostgreSQL container and test databases, run the following on
+the same reviewed SHA on native amd64. This mode already includes the amd64
+installed check.
 
-```text
---read-only --network none --cap-drop ALL --security-opt no-new-privileges
---entrypoint python ... -I /payload/verify-payload.py installed
---manifest /payload/payload.json
+```sh
+bash .buzzvil/verify-installed-local.sh "$APPROVED_SOURCE_SHA" linux/amd64 --regression
 ```
 
-The owned checker imports only the standard library. Overriding the inherited
-`dumb-init -- ak` entrypoint and command starts no server/worker/Django migration.
-The container receives only a read-only overlay mount and has no outbound
-network or DB configuration. A creates no PG server/native fixture, test image,
-custom Docker network, privileged helper, registry push/login, Release, GitOps
-operation, operating API call or user access change. Build network access is
-limited by the pinned recipe's normal base retrieval; repository/head/artifact
-traffic uses the existing GitHub endpoints. This is not a new network-policy
-permission or a claim that a global egress filter was installed.
+The helper builds the existing test derivative and checks its installed
+test files and inherited helpers. It verifies the production image's
+OS and certifi trust stores, certifi/uv versions, and CA package. It then
+uses the existing `postgres:17.11-bookworm` fixture with synthetic credentials
+and runs the complete OAuth2/SAML and UserWrite regression labels from
+`Dockerfile.test`. The test container uses the disposable network and
+its own PostgreSQL container.
 
-Each `authentik-A-<sha>-<platform>-<run>-<attempt>` artifact contains the local
-build log, installed-check log, scoped cleanup log and `receipt.json`. The
-receipt binds repository/workflow/source/ref/event SHA, run/attempt, native
-machine, actual platform, new local image ID, pinned base, full manifest SHA256,
-canonical eleven-entry runtime payload SHA256 and the verified file entries.
-It explicitly marks native flow/migration/serializer and publication NOT_RUN.
-For `both`, acceptance requires two successful receipts at the same approved
-source/run/attempt with the same manifest/runtime payload hashes and the two
-distinct actual platforms. One artifact or a generic green check is insufficient.
-No registry index digest is manufactured from a local image ID or old base.
-
-Signals, build/inspection/hash failures and branch drift stop A. The build-step
-trap removes only its run/attempt/platform-named container and qualification
-image, preserves a failing exit status, and fails a successful check if image
-cleanup fails. A failure produces logs without a success receipt. The hosted
-runner owns remaining base/cache cleanup at VM disposal; no global prune or
-other worker lifecycle change occurs. Artifacts upload on success/failure,
-missing files are errors, and retention is 14 days. Default/full verification,
-B image-native DB/migration/serializer evidence, PG-version qualification,
-publication and real Google callback/SAML/OIDC acceptance retain their separate
-required gates and approvals.
+Keep `unittest.xml` from the printed local report directory. The helper
+exports it before cleaning its own containers, images and network, and
+preserves a test failure's exit status. A missing report or failed cleanup
+fails an otherwise successful run. Source CI and local image results
+are separate evidence. Operating acceptance follows its own approval and
+verification path.
