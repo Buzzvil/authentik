@@ -69,11 +69,67 @@ jobs:
           NODE_ENV: "production"
         working-directory: web/
         run: pnpm run build
+  build-node-container:
+    name: build-node-container (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v5
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Build web UI with the container's Node runtime
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: lifecycle/container/Dockerfile
+          target: node-builder
+          platforms: linux/${{ matrix.arch }}
+          push: false
+          load: true
+          tags: authentik-web-node-builder:ci
+          cache-from: type=gha,scope=web-node-builder-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=web-node-builder-${{ matrix.arch }}
+      - name: Verify Node and pnpm runtimes in the built image
+        run: |
+          expected_node="$(sed -n 's@^FROM.*node:\([0-9.]*\)-.* AS node-builder$@\1@p' lifecycle/container/Dockerfile)"
+          test -n "$expected_node"
+          docker run --rm --network none -i --entrypoint node \
+            -e EXPECTED_NODE_VERSION="$expected_node" \
+            authentik-web-node-builder:ci --input-type=commonjs - <<'JS'
+          const assert = require("node:assert/strict");
+          const fs = require("node:fs");
+          const { spawnSync } = require("node:child_process");
+          assert.equal(process.versions.node, process.env.EXPECTED_NODE_VERSION);
+          fs.writeFileSync("/tmp/assert-node.cjs", 'require("node:assert/strict").equal(process.versions.node, process.env.EXPECTED_NODE_VERSION); require("node:fs").appendFileSync("/tmp/node-versions", process.versions.node + "\\n");');
+          const result = spawnSync("pnpm", ["--version"], {
+            encoding: "utf8",
+            env: { ...process.env, NODE_OPTIONS: "--require=/tmp/assert-node.cjs" },
+          });
+          assert.equal(result.status, 0, result.stderr);
+          const expectedPnpm = require("./package.json").packageManager.split("@")[1].split("+")[0];
+          assert.equal(result.stdout.trim(), expectedPnpm);
+          const runtimes = fs.readFileSync("/tmp/node-versions", "utf8").trim().split("\n");
+          assert.ok(runtimes.length > 0);
+          for (const version of runtimes) assert.equal(version, process.env.EXPECTED_NODE_VERSION);
+          console.log(JSON.stringify({ node: process.versions.node, pnpm: expectedPnpm, pnpmRuntimes: runtimes }));
+          JS
   ci-web-mark:
     if: always()
     needs:
       - build
       - lint
+      - build-node-container
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@05ac9388f0aebcb5727afa17fcccfecd6f8ec5fe # release/v1
