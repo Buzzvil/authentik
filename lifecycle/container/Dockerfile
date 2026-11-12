@@ -5,7 +5,7 @@
 FROM --platform=${BUILDPLATFORM} ghcr.io/pnpm/pnpm:11.10.0@sha256:9a6eb06d5f861d830fe27d85a91415e60527fa45ec45b52ee43c92a8aaf3bf8a AS pnpm
 
 # Stage: Build webui
-FROM --platform=${BUILDPLATFORM} docker.io/library/node:26-trixie-slim@sha256:a1d9d671994fc2d26e297ac56b4b1522a8bc7fa71c43b14cd1b1fe6c5116f7dc AS node-builder
+FROM --platform=${BUILDPLATFORM} docker.io/library/node:26.13.1-trixie-slim@sha256:e6bedef217677b276c591795e169840edd9096dbf13f29df8ef8d1856b8820bc AS node-builder
 
 ARG GIT_BUILD_HASH
 ENV GIT_BUILD_HASH=$GIT_BUILD_HASH
@@ -13,8 +13,10 @@ ENV NODE_ENV=production
 
 WORKDIR /work
 
-COPY --from=pnpm /opt/pnpm /opt/pnpm
-ENV PATH="/opt/pnpm:${PATH}"
+# Use the pinned pnpm JavaScript with the patched Node, rather than its bundled runtime.
+COPY --from=pnpm /opt/pnpm/dist /opt/pnpm/dist
+RUN printf '%s\n' '#!/bin/sh' 'exec node /opt/pnpm/dist/pnpm.mjs "$@"' > /usr/local/bin/pnpm && \
+    chmod +x /usr/local/bin/pnpm
 
 RUN --mount=type=bind,target=/work/package.json,src=./package.json \
     --mount=type=bind,target=/work/web/package.json,src=./web/package.json \
