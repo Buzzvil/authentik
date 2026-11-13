@@ -14,7 +14,13 @@ from authentik.core.models import Application
 from authentik.core.tests.utils import create_test_flow
 from authentik.lib.config import CONFIG
 from authentik.lib.generators import generate_id
-from authentik.providers.oauth2.models import DeviceToken, GrantType, OAuth2Provider, ScopeMapping
+from authentik.providers.oauth2.models import (
+    ClientType,
+    DeviceToken,
+    GrantType,
+    OAuth2Provider,
+    ScopeMapping,
+)
 from authentik.providers.oauth2.tests.utils import OAuthTestCase
 from authentik.providers.oauth2.views.device_init import QS_KEY_CODE
 
@@ -28,6 +34,7 @@ class TesOAuth2DeviceBackchannel(OAuthTestCase):
             client_id="test",
             authorization_flow=create_test_flow(),
             grant_types=[GrantType.DEVICE_CODE],
+            client_type=ClientType.PUBLIC,
         )
         self.application = Application.objects.create(
             name=generate_id(),
@@ -89,6 +96,48 @@ class TesOAuth2DeviceBackchannel(OAuthTestCase):
         self.assertEqual(res.status_code, 200)
         body = loads(res.content.decode())
         self.assertEqual(body["expires_in"], 60)
+
+    def test_confidential_client_requires_secret_for_device_start(self):
+        """A public client ID alone cannot start a confidential device flow."""
+        self.provider.client_type = ClientType.CONFIDENTIAL
+        self.provider.client_secret = "synthetic-client-secret"
+        self.provider.save()
+        endpoint = reverse("authentik_providers_oauth2:device")
+
+        for secret in (None, "wrong-secret"):
+            data = {"client_id": self.provider.client_id}
+            if secret is not None:
+                data["client_secret"] = secret
+            res = self.client.post(endpoint, data=data)
+            self.assertEqual(res.status_code, 400)
+            self.assertEqual(loads(res.content)["error"], "invalid_client")
+        self.assertEqual(DeviceToken.objects.filter(provider=self.provider).count(), 0)
+
+        res = self.client.post(
+            endpoint,
+            data={
+                "client_id": self.provider.client_id,
+                "client_secret": self.provider.client_secret,
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+
+        credentials = b64encode(f"{self.provider.client_id}:{self.provider.client_secret}".encode())
+        res = self.client.post(endpoint, HTTP_AUTHORIZATION=f"Basic {credentials.decode()}")
+        self.assertEqual(res.status_code, 200)
+
+    def test_confidential_client_with_non_ascii_stored_secret_is_rejected(self):
+        """A malformed stored secret must not turn device start into a server error."""
+        self.provider.client_type = ClientType.CONFIDENTIAL
+        self.provider.client_secret = "synthetic-ñ-secret"
+        self.provider.save()
+        res = self.client.post(
+            reverse("authentik_providers_oauth2:device"),
+            data={"client_id": self.provider.client_id, "client_secret": "synthetic-secret"},
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["error"], "invalid_client")
+        self.assertFalse(DeviceToken.objects.filter(provider=self.provider).exists())
 
     def test_backchannel_invalid_client_id_via_auth_header(self):
         """Test backchannel"""

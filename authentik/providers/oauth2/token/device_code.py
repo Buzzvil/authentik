@@ -2,12 +2,11 @@ from django.http import HttpRequest
 
 from authentik.common.oauth.constants import SCOPE_BOUND_KEY
 from authentik.providers.oauth2.errors import DeviceCodeError, TokenError
-from authentik.providers.oauth2.models import DeviceToken
+from authentik.providers.oauth2.models import DeviceToken, ScopeMapping
 from authentik.providers.oauth2.token.base import TokenRequest
 
 
 class DeviceCodeTokenRequest(TokenRequest):
-
     device_code: DeviceToken | None = None
 
     def parse(self, request: HttpRequest) -> None:
@@ -24,6 +23,13 @@ class DeviceCodeTokenRequest(TokenRequest):
             raise TokenError("invalid_grant")
         if code.expires and code.is_expired:
             raise DeviceCodeError("expired_token")
+        # The provider's mappings may have changed since the device code was issued.
+        # Never exchange a code carrying a scope that is no longer allowed.
+        allowed_scopes = set(
+            ScopeMapping.objects.filter(provider=self.provider).values_list("scope_name", flat=True)
+        )
+        if not set(code.scope).issubset(allowed_scopes):
+            raise TokenError("invalid_scope")
         self.device_code = code
 
         if SCOPE_BOUND_KEY in self.device_code.scope:
