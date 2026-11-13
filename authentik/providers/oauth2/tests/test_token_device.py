@@ -236,6 +236,23 @@ class TestTokenDeviceCode(OAuthTestCase):
         # The refresh token's ID Token carries the access token's at_hash
         self.assertEqual(refresh_token.id_token.at_hash, access_token.at_hash)
 
+    def test_code_offline_access_removed_before_exchange(self):
+        """A removed provider scope must not mint a refresh token from an older device code."""
+        device_token = self.create_device_token(scope=[SCOPE_OPENID, SCOPE_OFFLINE_ACCESS])
+        offline_access = ScopeMapping.objects.get(scope_name=SCOPE_OFFLINE_ACCESS)
+        self.provider.property_mappings.remove(offline_access)
+
+        res = self.exchange(device_token.device_code)
+
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(loads(res.content.decode())["error"], "invalid_scope")
+        self.assertFalse(
+            AccessToken.objects.filter(provider=self.provider, user=self.user).exists()
+        )
+        self.assertFalse(
+            RefreshToken.objects.filter(provider=self.provider, user=self.user).exists()
+        )
+
     def test_code_grant_type_not_configured(self):
         """A provider that doesn't allow the device code grant refuses to exchange"""
         device_token = self.create_device_token()
