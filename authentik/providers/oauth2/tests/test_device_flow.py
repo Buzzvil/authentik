@@ -18,6 +18,7 @@ from authentik.events.signals import get_login_event
 from authentik.lib.generators import generate_id
 from authentik.providers.oauth2.models import (
     AccessToken,
+    ClientType,
     DeviceToken,
     GrantType,
     OAuth2Provider,
@@ -39,6 +40,7 @@ class TestOAuth2DeviceFlow(OAuthTestCase):
             authorization_flow=create_test_flow(),
             signing_key=self.keypair,
             grant_types=[GrantType.DEVICE_CODE],
+            client_type=ClientType.PUBLIC,
         )
         self.provider.property_mappings.set(ScopeMapping.objects.all())
         self.application = Application.objects.create(
@@ -72,7 +74,6 @@ class TestOAuth2DeviceFlow(OAuthTestCase):
             reverse("authentik_providers_oauth2:token"),
             data={
                 "client_id": self.provider.client_id,
-                "client_secret": self.provider.client_secret,
                 "grant_type": GRANT_TYPE_DEVICE_CODE,
                 "device_code": device_code,
             },
