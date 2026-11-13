@@ -1,5 +1,6 @@
 """Device flow views"""
 
+from hmac import compare_digest
 from urllib.parse import urlencode
 
 from django.http import HttpRequest, HttpResponse
@@ -17,8 +18,14 @@ from authentik.lib.config import CONFIG
 from authentik.lib.utils.time import timedelta_from_string
 from authentik.providers.oauth2.dpop import is_valid_jkt
 from authentik.providers.oauth2.errors import DeviceCodeError
-from authentik.providers.oauth2.models import DeviceToken, GrantType, OAuth2Provider, ScopeMapping
-from authentik.providers.oauth2.utils import TokenResponse, extract_client_auth
+from authentik.providers.oauth2.models import (
+    ClientType,
+    DeviceToken,
+    GrantType,
+    OAuth2Provider,
+    ScopeMapping,
+)
+from authentik.providers.oauth2.utils import TokenResponse, extract_client_auth, is_all_vschar
 from authentik.providers.oauth2.views.device_init import QS_KEY_CODE
 
 LOGGER = get_logger()
@@ -35,7 +42,7 @@ class DeviceView(View):
 
     def parse_request(self):
         """Parse incoming request"""
-        client_id, _ = extract_client_auth(self.request)
+        client_id, client_secret = extract_client_auth(self.request)
         if not client_id:
             raise DeviceCodeError("invalid_client")
         provider = OAuth2Provider.objects.filter(client_id=client_id).first()
@@ -46,6 +53,13 @@ class DeviceView(View):
         except Application.DoesNotExist:
             raise DeviceCodeError("invalid_client") from None
         if GrantType.DEVICE_CODE not in provider.grant_types:
+            raise DeviceCodeError("invalid_client")
+        # Authenticate confidential clients before issuing a device code.
+        if provider.client_type == ClientType.CONFIDENTIAL and (
+            not client_secret
+            or not is_all_vschar(client_secret)
+            or not compare_digest(provider.client_secret, client_secret)
+        ):
             raise DeviceCodeError("invalid_client")
         self.provider = provider
         self.client_id = client_id
