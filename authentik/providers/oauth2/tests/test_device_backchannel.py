@@ -126,6 +126,19 @@ class TesOAuth2DeviceBackchannel(OAuthTestCase):
         res = self.client.post(endpoint, HTTP_AUTHORIZATION=f"Basic {credentials.decode()}")
         self.assertEqual(res.status_code, 200)
 
+    def test_confidential_client_with_non_ascii_stored_secret_is_rejected(self):
+        """A malformed stored secret must not turn device start into a server error."""
+        self.provider.client_type = ClientType.CONFIDENTIAL
+        self.provider.client_secret = "synthetic-ñ-secret"
+        self.provider.save()
+        res = self.client.post(
+            reverse("authentik_providers_oauth2:device"),
+            data={"client_id": self.provider.client_id, "client_secret": "synthetic-secret"},
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.json()["error"], "invalid_client")
+        self.assertFalse(DeviceToken.objects.filter(provider=self.provider).exists())
+
     def test_backchannel_invalid_client_id_via_auth_header(self):
         """Test backchannel"""
         creds = b64encode(b"foo:").decode()

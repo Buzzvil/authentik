@@ -58,25 +58,28 @@ class TestOAuth2DeviceFlow(OAuthTestCase):
 
     def request_device_code(self, scope: str = f"{SCOPE_OPENID} {SCOPE_OPENID_EMAIL}") -> dict:
         """Run the back channel and return the device authorization response"""
+        data = {"client_id": self.provider.client_id, "scope": scope}
+        if self.provider.client_type == ClientType.CONFIDENTIAL:
+            data["client_secret"] = self.provider.client_secret
         res = self.client.post(
             reverse("authentik_providers_oauth2:device"),
-            data={
-                "client_id": self.provider.client_id,
-                "scope": scope,
-            },
+            data=data,
         )
         self.assertEqual(res.status_code, 200)
         return loads(res.content.decode())
 
     def exchange(self, device_code: str):
         """Poll the token endpoint for the given device code"""
+        data = {
+            "client_id": self.provider.client_id,
+            "grant_type": GRANT_TYPE_DEVICE_CODE,
+            "device_code": device_code,
+        }
+        if self.provider.client_type == ClientType.CONFIDENTIAL:
+            data["client_secret"] = self.provider.client_secret
         return self.client.post(
             reverse("authentik_providers_oauth2:token"),
-            data={
-                "client_id": self.provider.client_id,
-                "grant_type": GRANT_TYPE_DEVICE_CODE,
-                "device_code": device_code,
-            },
+            data=data,
         )
 
     def authorize_via_query_param(self, device: dict):
@@ -99,6 +102,15 @@ class TestOAuth2DeviceFlow(OAuthTestCase):
 
     def test_device_flow_end_to_end(self):
         """Full flow: back channel, authorize via query param, exchange the code"""
+        self.assert_device_flow_end_to_end()
+
+    def test_confidential_device_flow_end_to_end(self):
+        """A confidential client authenticates at device start and token exchange."""
+        self.provider.client_type = ClientType.CONFIDENTIAL
+        self.provider.save()
+        self.assert_device_flow_end_to_end()
+
+    def assert_device_flow_end_to_end(self):
         device = self.request_device_code()
         token = DeviceToken.objects.filter(device_code=device["device_code"]).first()
         self.assertIsNotNone(token)

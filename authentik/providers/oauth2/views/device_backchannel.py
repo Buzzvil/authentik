@@ -58,7 +58,7 @@ class DeviceView(View):
         if provider.client_type == ClientType.CONFIDENTIAL and (
             not client_secret
             or not is_all_vschar(client_secret)
-            or not compare_digest(provider.client_secret, client_secret)
+            or not compare_digest(provider.client_secret.encode(), client_secret.encode())
         ):
             raise DeviceCodeError("invalid_client")
         self.provider = provider
